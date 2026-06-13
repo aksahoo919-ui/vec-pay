@@ -500,8 +500,8 @@ function App() {
       <div className="min-h-screen flex items-center justify-center"
         style={{ background: 'linear-gradient(135deg, #1c0a00 0%, #7c2d12 40%, #991b1b 75%, #c2410c 100%)' }}>
         <div className="text-center">
-          <div className="w-20 h-20 bg-white/10 rounded-2xl flex items-center justify-center mx-auto mb-6 animate-pulse">
-            <span style={{ color: 'white', fontSize: '2.2rem', fontFamily: 'Georgia, serif' }}>ॐ</span>
+          <div className="w-20 h-20 bg-white rounded-2xl flex items-center justify-center mx-auto mb-6 animate-pulse p-3 shadow-lg">
+            <img src="/iskcon_logo.png" alt="ISKCON Logo" className="w-full h-full object-contain" />
           </div>
           <div className="flex gap-2 justify-center mb-4">
             {[0, 150, 300].map(delay => (
@@ -525,8 +525,8 @@ function App() {
         <div style={{ background: 'linear-gradient(135deg, #ea580c, #dc2626)' }} className="shadow-lg sticky top-0 z-30">
           <div className="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
-                <span style={{ fontFamily: 'Georgia, serif', color: 'white', fontSize: '1.3rem' }}>ॐ</span>
+              <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center p-1.5 shadow">
+                <img src="/iskcon_logo.png" alt="ISKCON Logo" className="w-full h-full object-contain" />
               </div>
               <div>
                 <h1 className="text-white font-bold text-lg leading-none">ŚREṢṬHA Admin</h1>
@@ -901,9 +901,9 @@ function App() {
     <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden"
       style={{ background: 'linear-gradient(135deg, #1c0a00 0%, #7c2d12 35%, #991b1b 70%, #c2410c 100%)' }}>
 
-      {/* OM watermark */}
+      {/* Logo watermark */}
       <div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none overflow-hidden">
-        <span style={{ fontSize: '60vw', opacity: 0.04, color: 'white', fontFamily: 'Georgia, serif', lineHeight: 1 }}>ॐ</span>
+        <img src="/iskcon_logo.png" alt="" style={{ width: '55vw', maxWidth: '500px', opacity: 0.06, filter: 'invert(1)' }} />
       </div>
 
       {/* Glow blobs */}
@@ -962,11 +962,11 @@ function App() {
             <div className="absolute -bottom-8 -left-8 w-36 h-36 rounded-full bg-black/10 pointer-events-none" />
 
             <div className="relative z-10">
-              <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">
-                <span style={{ color: '#ea580c', fontSize: '1.9rem', fontFamily: 'Georgia, serif', lineHeight: 1 }}>ॐ</span>
+              <div className="w-20 h-20 bg-white rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg p-2">
+                <img src="/iskcon_logo.png" alt="ISKCON Logo" className="w-full h-full object-contain" />
               </div>
               <span className="inline-block bg-white/25 text-white/95 text-xs font-semibold px-3 py-1 rounded-full uppercase tracking-widest mb-3">
-                ISKCON Jivadaya
+                ISKCON ABIDS, Hyderabad
               </span>
               <h1 className="text-white text-2xl font-bold mb-1">ŚREṢṬHA Contest</h1>
               <p className="text-orange-100 text-sm">Student Registration · ₹{PAYMENT_AMOUNT}</p>
