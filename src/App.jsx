@@ -3,11 +3,7 @@ import { User, LogOut, Plus, Edit2, Trash2, Save, X, Download } from 'lucide-rea
 import { supabase } from './config/supabase';
 
 const RAZORPAY_KEY_ID = import.meta.env.VITE_RAZORPAY_KEY_ID;
-const PAYMENT_AMOUNT = 200;
-const ALLOWED_ADMINS = [
-  'aksahoo.919@gmail.com',
-  'abhaynitaidas.bavs@gmail.com'
-];
+const PAYMENT_AMOUNT = 30;
 
 function App() {
   const [isAdmin, setIsAdmin] = useState(false);
@@ -43,22 +39,36 @@ function App() {
   const [selectedCityFilter, setSelectedCityFilter] = useState('');
   const [selectedSchoolFilter, setSelectedSchoolFilter] = useState('');
 
+  // Admin management
+  const [admins, setAdmins] = useState([]);
+  const [newAdminEmail, setNewAdminEmail] = useState('');
+
   useEffect(() => {
     loadCities();
     loadSchools();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       const user = session?.user;
-      if (user && ALLOWED_ADMINS.includes(user.email)) {
-        setIsAdmin(true);
-        setAdminEmail(user.email);
-        loadPayments();
+      if (user) {
+        const { data: adminRecord } = await supabase
+          .from('admins')
+          .select('email')
+          .eq('email', user.email)
+          .maybeSingle();
+
+        if (adminRecord) {
+          setIsAdmin(true);
+          setAdminEmail(user.email);
+          loadPayments();
+          loadAdmins();
+        } else {
+          setIsAdmin(false);
+          setAdminEmail('');
+          supabase.auth.signOut();
+        }
       } else {
         setIsAdmin(false);
         setAdminEmail('');
-        if (user && !ALLOWED_ADMINS.includes(user.email)) {
-          supabase.auth.signOut();
-        }
       }
       setLoading(false);
     });
@@ -107,6 +117,50 @@ function App() {
       setPayments(data || []);
     } catch (error) {
       console.error('Error loading payments:', error);
+    }
+  };
+
+  // ── Admin CRUD ────────────────────────────────────────────────
+
+  const loadAdmins = async () => {
+    try {
+      const { data, error } = await supabase.from('admins').select('*').order('email');
+      if (error) throw error;
+      setAdmins(data || []);
+    } catch (error) {
+      console.error('Error loading admins:', error);
+    }
+  };
+
+  const addAdmin = async () => {
+    const email = newAdminEmail.trim().toLowerCase();
+    if (!email) { alert('Please enter an email address'); return; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { alert('Please enter a valid email address'); return; }
+    if (admins.some(a => a.email === email)) { alert('This email is already an admin'); return; }
+
+    try {
+      const { data, error } = await supabase.from('admins').insert({ email }).select().single();
+      if (error) throw error;
+      setAdmins([...admins, data].sort((a, b) => a.email.localeCompare(b.email)));
+      setNewAdminEmail('');
+    } catch (error) {
+      console.error('Error adding admin:', error);
+      alert(`Error adding admin: ${error.message}`);
+    }
+  };
+
+  const removeAdmin = async (adminRecord) => {
+    if (adminRecord.email === adminEmail) { alert("You can't remove yourself."); return; }
+    if (admins.length <= 1) { alert('Cannot remove the last admin.'); return; }
+    if (!confirm(`Remove ${adminRecord.email} as admin?`)) return;
+
+    try {
+      const { error } = await supabase.from('admins').delete().eq('id', adminRecord.id);
+      if (error) throw error;
+      setAdmins(admins.filter(a => a.id !== adminRecord.id));
+    } catch (error) {
+      console.error('Error removing admin:', error);
+      alert(`Error removing admin: ${error.message}`);
     }
   };
 
@@ -779,6 +833,60 @@ function App() {
                   )}
                 </div>
               ))}
+            </div>
+          </div>
+
+          {/* Admin Management */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+            <div className="flex justify-between items-center px-6 py-5 border-b border-gray-100">
+              <div>
+                <h2 className="text-lg font-bold text-gray-900">Admin Management</h2>
+                <p className="text-sm text-gray-400 mt-0.5">{admins.length} admin{admins.length !== 1 ? 's' : ''} · changes take effect immediately</p>
+              </div>
+            </div>
+
+            <div className="px-6 py-5">
+              {/* Add new admin */}
+              <div className="flex gap-2 mb-5">
+                <input
+                  type="email"
+                  placeholder="Enter Google email address"
+                  value={newAdminEmail}
+                  onChange={(e) => setNewAdminEmail(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && addAdmin()}
+                  className="flex-1 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-orange-400 outline-none"
+                />
+                <button onClick={addAdmin}
+                  className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-all whitespace-nowrap">
+                  <Plus size={15} /> Add Admin
+                </button>
+              </div>
+
+              {/* Admin list */}
+              <div className="space-y-2">
+                {admins.map(admin => (
+                  <div key={admin.id} className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full bg-orange-100 flex items-center justify-center shrink-0">
+                        <span className="text-orange-600 text-xs font-bold uppercase">{admin.email[0]}</span>
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-gray-800">{admin.email}</p>
+                        {admin.email === adminEmail && (
+                          <p className="text-xs text-orange-500 font-medium">You</p>
+                        )}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => removeAdmin(admin)}
+                      disabled={admin.email === adminEmail || admins.length <= 1}
+                      className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                      title={admin.email === adminEmail ? "Can't remove yourself" : "Remove admin"}>
+                      <X size={16} />
+                    </button>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
 
