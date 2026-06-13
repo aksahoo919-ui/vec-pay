@@ -1,65 +1,41 @@
 import React, { useState, useEffect } from 'react';
 import { User, LogOut, Plus, Edit2, Trash2, Save, X, Download } from 'lucide-react';
+import { supabase } from './config/supabase';
 
-// Initialize Firebase (replace with your config)
-import { initializeApp } from 'firebase/app';
-import { getFirestore, collection, addDoc, updateDoc, deleteDoc, doc, getDocs, query, orderBy } from 'firebase/firestore';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from 'firebase/auth';
-
-// Firebase Configuration - REPLACE WITH YOUR VALUES
-const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID
-};
-
-
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
-const auth = getAuth(app);
-const googleProvider = new GoogleAuthProvider();
-
-// Razorpay Configuration - REPLACE WITH YOUR KEY
 const RAZORPAY_KEY_ID = import.meta.env.VITE_RAZORPAY_KEY_ID;
-const PAYMENT_AMOUNT = 200; // Amount in INR
+const PAYMENT_AMOUNT = 200;
+const ALLOWED_ADMINS = [
+  'aksahoo.919@gmail.com',
+  'abhaynitaidas.bavs@gmail.com'
+];
 
 function App() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [adminEmail, setAdminEmail] = useState('');
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [loading, setLoading] = useState(true);
-  
+
   // Form state
   const [formData, setFormData] = useState({
     name: '',
-    city: '',
     school: '',
     class: '',
-    division: '',
     mobile: '',
     language: ''
   });
+  const [otherSchoolName, setOtherSchoolName] = useState('');
 
-  // Data state
-  const [cities, setCities] = useState([]); // Default cities
+  // Data state — cities is {id, name}[]
+  const [cities, setCities] = useState([]);
   const [schools, setSchools] = useState([]);
   const [classes] = useState(['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th', '10th', '11th', '12th']);
   const [payments, setPayments] = useState([]);
-  
+
   const [editingSchool, setEditingSchool] = useState(null);
   const [showAddSchool, setShowAddSchool] = useState(false);
-  const [newSchool, setNewSchool] = useState({
-    name: '',
-    city: '',
-    devotee: '',
-    languages: []
-  });
+  const [newSchool, setNewSchool] = useState({ name: '', city: '', devotee: '', languages: [] });
 
-  // City management state
+  // City management state — editingCity is {id, name} | null
   const [showAddCity, setShowAddCity] = useState(false);
   const [newCity, setNewCity] = useState('');
   const [editingCity, setEditingCity] = useState(null);
@@ -69,11 +45,13 @@ function App() {
   const [selectedCityFilter, setSelectedCityFilter] = useState('');
   const [selectedSchoolFilter, setSelectedSchoolFilter] = useState('');
 
-  // Load data on mount
+  // Load data on mount; listen for auth state changes
   useEffect(() => {
     loadCities();
     loadSchools();
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      const user = session?.user;
       if (user && ALLOWED_ADMINS.includes(user.email)) {
         setIsAdmin(true);
         setAdminEmail(user.email);
@@ -82,51 +60,41 @@ function App() {
         setIsAdmin(false);
         setAdminEmail('');
         if (user && !ALLOWED_ADMINS.includes(user.email)) {
-          // User logged in but not an admin
-          signOut(auth);
+          supabase.auth.signOut();
         }
       }
       setLoading(false);
     });
-    return () => unsubscribe();
+
+    return () => subscription.unsubscribe();
   }, []);
 
-  // Firebase Functions
+  // ── Data Loading ─────────────────────────────────────────────
+
   const loadCities = async () => {
     try {
-      const citiesCol = collection(db, 'cities');
-      const citySnapshot = await getDocs(citiesCol);
-      const citiesList = citySnapshot.docs.map(doc => doc.data().name).filter(Boolean);
-      if (citiesList.length > 0) {
-        setCities(citiesList.sort());
-      }
+      const { data, error } = await supabase.from('cities').select('*').order('name');
+      if (error) throw error;
+      setCities(data || []);
     } catch (error) {
       console.error('Error loading cities:', error);
-      // Keep default cities if Firebase not configured
     }
   };
 
   const loadSchools = async () => {
     try {
-      const schoolsCol = collection(db, 'schools');
-      const schoolSnapshot = await getDocs(schoolsCol);
-      const schoolsList = schoolSnapshot.docs.map(doc => ({ 
-        id: doc.id, 
-        ...doc.data() 
-      }));
-      setSchools(schoolsList);
+      const { data, error } = await supabase.from('schools').select('*');
+      if (error) throw error;
+      setSchools(data || []);
     } catch (error) {
       console.error('Error loading schools:', error);
-      // Use demo data if Firebase not configured yet
-      setSchools([
-        {
-          id: '1',
-          name: 'Damanwada Government School, Daman',
-          city: 'Daman',
-          devotee: 'Suddha Citta Das',
-          languages: ['English', 'Hindi', 'Gujarati']
-        }
-      ]);
+      setSchools([{
+        id: '1',
+        name: 'Damanwada Government School, Daman',
+        city: 'Daman',
+        devotee: 'Suddha Citta Das',
+        languages: ['English', 'Hindi', 'Gujarati']
+      }]);
     } finally {
       setLoading(false);
     }
@@ -134,66 +102,63 @@ function App() {
 
   const loadPayments = async () => {
     try {
-      const paymentsCol = collection(db, 'payments');
-      const q = query(paymentsCol, orderBy('timestamp', 'desc'));
-      const paymentSnapshot = await getDocs(q);
-      const paymentsList = paymentSnapshot.docs.map(doc => ({ 
-        id: doc.id, 
-        ...doc.data() 
-      }));
-      setPayments(paymentsList);
+      const { data, error } = await supabase
+        .from('payments')
+        .select('*')
+        .order('timestamp', { ascending: false });
+      if (error) throw error;
+      setPayments(data || []);
     } catch (error) {
       console.error('Error loading payments:', error);
     }
   };
 
-  const addSchoolToFirebase = async () => {
+  // ── School CRUD ───────────────────────────────────────────────
+
+  const addSchoolToDb = async () => {
     if (!newSchool.name || !newSchool.city || !newSchool.devotee || newSchool.languages.length === 0) {
       alert('Please fill all fields');
       return;
     }
-    
+
     try {
-      // Validate Firebase connection
-      if (!db) {
-        throw new Error('Firebase not initialized. Please check your Firebase configuration.');
-      }
+      const { data, error } = await supabase
+        .from('schools')
+        .insert({
+          name: newSchool.name.trim(),
+          city: newSchool.city.trim(),
+          devotee: newSchool.devotee.trim(),
+          languages: newSchool.languages
+        })
+        .select()
+        .single();
 
-      // Check authentication state
-      const currentUser = auth.currentUser;
-      if (!currentUser) {
-        throw new Error('You must be logged in to add schools. Please log in as admin.');
-      }
-      console.log('Current user:', currentUser.email);
-      console.log('Is admin?', ALLOWED_ADMINS.includes(currentUser.email));
+      if (error) throw error;
 
-      const docRef = await addDoc(collection(db, 'schools'), {
-        name: newSchool.name.trim(),
-        city: newSchool.city.trim(),
-        devotee: newSchool.devotee.trim(),
-        languages: newSchool.languages
-      });
-      
-      setSchools([...schools, { ...newSchool, id: docRef.id }]);
+      setSchools([...schools, data]);
       setNewSchool({ name: '', city: '', devotee: '', languages: [] });
       setShowAddSchool(false);
       alert('School added successfully!');
     } catch (error) {
       console.error('Error adding school:', error);
-      const errorMessage = error.message || 'Unknown error occurred';
-      alert(`Error adding school: ${errorMessage}\n\nPlease check:\n1. Firebase configuration\n2. Firestore security rules\n3. Network connection\n4. You are logged in as admin`);
+      alert(`Error adding school: ${error.message}`);
     }
   };
 
-  const updateSchoolInFirebase = async (id) => {
+  const updateSchoolInDb = async (id) => {
     try {
-      const schoolRef = doc(db, 'schools', id);
-      await updateDoc(schoolRef, {
-        name: editingSchool.name,
-        city: editingSchool.city,
-        devotee: editingSchool.devotee,
-        languages: editingSchool.languages
-      });
+      const { error } = await supabase
+        .from('schools')
+        .update({
+          name: editingSchool.name,
+          city: editingSchool.city,
+          devotee: editingSchool.devotee,
+          languages: editingSchool.languages
+        })
+        .eq('id', id);
+
+      if (error) throw error;
+
       setSchools(schools.map(s => s.id === id ? editingSchool : s));
       setEditingSchool(null);
       alert('School updated successfully!');
@@ -203,33 +168,39 @@ function App() {
     }
   };
 
-  const deleteSchoolFromFirebase = async (id) => {
+  const deleteSchoolFromDb = async (id) => {
     if (!confirm('Are you sure you want to delete this school?')) return;
-    
-    try {
-      // Check authentication state
-      const currentUser = auth.currentUser;
-      if (!currentUser) {
-        throw new Error('You must be logged in to delete schools. Please log in as admin.');
-      }
-      console.log('Current user:', currentUser.email);
 
-      await deleteDoc(doc(db, 'schools', id));
+    try {
+      const { error } = await supabase.from('schools').delete().eq('id', id);
+      if (error) throw error;
       setSchools(schools.filter(s => s.id !== id));
       alert('School deleted successfully!');
     } catch (error) {
       console.error('Error deleting school:', error);
-      const errorMessage = error.message || 'Unknown error occurred';
-      alert(`Error deleting school: ${errorMessage}\n\nPlease check:\n1. You are logged in as admin\n2. Firestore security rules are deployed`);
+      alert(`Error deleting school: ${error.message}`);
     }
   };
 
-  const savePaymentToFirebase = async (paymentData) => {
+  // ── Payment ───────────────────────────────────────────────────
+
+  const savePaymentToDb = async (paymentData) => {
     try {
-      await addDoc(collection(db, 'payments'), {
-        ...paymentData,
+      const { error } = await supabase.from('payments').insert({
+        name: paymentData.name,
+        city: paymentData.city,
+        school: paymentData.school,
+        class: paymentData.class,
+        mobile: paymentData.mobile,
+        language: paymentData.language,
+        referred_by: paymentData.referredBy,
+        amount: paymentData.amount,
+        payment_id: paymentData.paymentId,
+        status: paymentData.status,
         timestamp: new Date().toISOString()
       });
+
+      if (error) throw error;
       return true;
     } catch (error) {
       console.error('Error saving payment:', error);
@@ -237,138 +208,105 @@ function App() {
     }
   };
 
-  // City Management Functions
-  const addCityToFirebase = async () => {
+  // ── City CRUD ─────────────────────────────────────────────────
+
+  const addCityToDb = async () => {
     if (!newCity.trim()) {
       alert('Please enter a city name');
       return;
     }
 
     const cityName = newCity.trim();
-    
-    // Check if city already exists
-    if (cities.includes(cityName)) {
+
+    if (cities.some(c => c.name === cityName)) {
       alert('City already exists');
       return;
     }
 
     try {
-      if (!db) {
-        throw new Error('Firebase not initialized. Please check your Firebase configuration.');
-      }
+      const { data, error } = await supabase
+        .from('cities')
+        .insert({ name: cityName })
+        .select()
+        .single();
 
-      // Check authentication state
-      const currentUser = auth.currentUser;
-      if (!currentUser) {
-        throw new Error('You must be logged in to add cities. Please log in as admin.');
-      }
-      console.log('Current user:', currentUser.email);
-      console.log('Is admin?', ALLOWED_ADMINS.includes(currentUser.email));
+      if (error) throw error;
 
-      await addDoc(collection(db, 'cities'), { name: cityName });
-      setCities([...cities, cityName].sort());
+      setCities([...cities, data].sort((a, b) => a.name.localeCompare(b.name)));
       setNewCity('');
       setShowAddCity(false);
       alert('City added successfully!');
     } catch (error) {
       console.error('Error adding city:', error);
-      const errorMessage = error.message || 'Unknown error occurred';
-      alert(`Error adding city: ${errorMessage}\n\nPlease check:\n1. You are logged in as admin\n2. Firestore security rules are deployed`);
+      alert(`Error adding city: ${error.message}`);
     }
   };
 
-  const updateCityInFirebase = async (oldCityName, newCityName) => {
+  const updateCityInDb = async (cityId, oldCityName, newCityName) => {
     if (!newCityName.trim()) {
       alert('Please enter a city name');
       return;
     }
 
     const trimmedNewName = newCityName.trim();
-    
+
     if (trimmedNewName === oldCityName) {
       setEditingCity(null);
       return;
     }
 
-    // Check if new city name already exists
-    if (cities.includes(trimmedNewName)) {
+    if (cities.some(c => c.name === trimmedNewName)) {
       alert('City already exists');
       return;
     }
 
     try {
-      if (!db) {
-        throw new Error('Firebase not initialized. Please check your Firebase configuration.');
-      }
+      const { error: cityError } = await supabase
+        .from('cities')
+        .update({ name: trimmedNewName })
+        .eq('id', cityId);
+      if (cityError) throw cityError;
 
-      // Find and update the city document
-      const citiesCol = collection(db, 'cities');
-      const citySnapshot = await getDocs(citiesCol);
-      const cityDoc = citySnapshot.docs.find(doc => doc.data().name === oldCityName);
-      
-      if (cityDoc) {
-        await updateDoc(doc(db, 'cities', cityDoc.id), { name: trimmedNewName });
-        
-        // Update cities state
-        const updatedCities = cities.map(c => c === oldCityName ? trimmedNewName : c).sort();
-        setCities(updatedCities);
-        
-        // Update schools that use this city
-        const schoolsCol = collection(db, 'schools');
-        const schoolsSnapshot = await getDocs(schoolsCol);
-        const updatePromises = schoolsSnapshot.docs
-          .filter(doc => doc.data().city === oldCityName)
-          .map(doc => updateDoc(doc.ref, { city: trimmedNewName }));
-        
-        await Promise.all(updatePromises);
-        
-        // Update local schools state
-        setSchools(schools.map(s => s.city === oldCityName ? { ...s, city: trimmedNewName } : s));
-        
-        setEditingCity(null);
-        setEditingCityValue('');
-        alert('City updated successfully!');
-      }
+      // Cascade rename to all schools in this city
+      const { error: schoolError } = await supabase
+        .from('schools')
+        .update({ city: trimmedNewName })
+        .eq('city', oldCityName);
+      if (schoolError) throw schoolError;
+
+      setCities(cities.map(c => c.id === cityId ? { ...c, name: trimmedNewName } : c).sort((a, b) => a.name.localeCompare(b.name)));
+      setSchools(schools.map(s => s.city === oldCityName ? { ...s, city: trimmedNewName } : s));
+      setEditingCity(null);
+      setEditingCityValue('');
+      alert('City updated successfully!');
     } catch (error) {
       console.error('Error updating city:', error);
-      const errorMessage = error.message || 'Unknown error occurred';
-      alert(`Error updating city: ${errorMessage}`);
+      alert(`Error updating city: ${error.message}`);
     }
   };
 
-  const deleteCityFromFirebase = async (cityName) => {
-    // Check if any schools use this city
-    const schoolsUsingCity = schools.filter(s => s.city === cityName);
+  const deleteCityFromDb = async (city) => {
+    const schoolsUsingCity = schools.filter(s => s.city === city.name);
     if (schoolsUsingCity.length > 0) {
       alert(`Cannot delete city. ${schoolsUsingCity.length} school(s) are using this city. Please update or delete those schools first.`);
       return;
     }
 
-    if (!confirm(`Are you sure you want to delete "${cityName}"?`)) return;
+    if (!confirm(`Are you sure you want to delete "${city.name}"?`)) return;
 
     try {
-      if (!db) {
-        throw new Error('Firebase not initialized. Please check your Firebase configuration.');
-      }
-
-      // Find and delete the city document
-      const citiesCol = collection(db, 'cities');
-      const citySnapshot = await getDocs(citiesCol);
-      const cityDoc = citySnapshot.docs.find(doc => doc.data().name === cityName);
-      
-      if (cityDoc) {
-        await deleteDoc(doc(db, 'cities', cityDoc.id));
-        setCities(cities.filter(c => c !== cityName));
-        alert('City deleted successfully!');
-      }
+      const { error } = await supabase.from('cities').delete().eq('id', city.id);
+      if (error) throw error;
+      setCities(cities.filter(c => c.id !== city.id));
+      alert('City deleted successfully!');
     } catch (error) {
       console.error('Error deleting city:', error);
-      const errorMessage = error.message || 'Unknown error occurred';
-      alert(`Error deleting city: ${errorMessage}`);
+      alert(`Error deleting city: ${error.message}`);
     }
   };
 
-  // Razorpay Payment
+  // ── Razorpay ──────────────────────────────────────────────────
+
   const loadRazorpayScript = () => {
     return new Promise((resolve) => {
       const script = document.createElement('script');
@@ -380,13 +318,13 @@ function App() {
   };
 
   const handlePayment = async () => {
-    if (!formData.name || !formData.city || !formData.school || !formData.class || !formData.mobile || !formData.language) {
+    if (!formData.name || !formData.school || !formData.class || !formData.mobile || !formData.language) {
       alert('Please fill all required fields');
       return;
     }
 
     const res = await loadRazorpayScript();
-    
+
     if (!res) {
       alert('Razorpay SDK failed to load. Please check your internet connection.');
       return;
@@ -394,43 +332,46 @@ function App() {
 
     const options = {
       key: RAZORPAY_KEY_ID,
-      amount: PAYMENT_AMOUNT * 100, // Convert to paise
+      amount: PAYMENT_AMOUNT * 100,
       currency: 'INR',
-      name: 'JIVADAYA - Value Education Contest',
+      name: 'JIVADAYA - ŚREṢṬHA Contest',
       description: 'VEC Kit Payment',
       handler: async function (response) {
+        const schoolName = formData.school === 'Other'
+          ? (otherSchoolName.trim() || 'Other')
+          : formData.school;
+        const cityFromSchool = formData.school === 'Other'
+          ? ''
+          : (schools.find(s => s.name === formData.school)?.city || '');
+
         const paymentData = {
-          ...formData,
+          name: formData.name,
+          city: cityFromSchool,
+          school: schoolName,
+          class: formData.class,
+          mobile: formData.mobile,
+          language: formData.language,
           referredBy: getReferredBy(),
           amount: PAYMENT_AMOUNT,
           paymentId: response.razorpay_payment_id,
           status: 'success'
         };
 
-        const saved = await savePaymentToFirebase(paymentData);
-        
+        const saved = await savePaymentToDb(paymentData);
+
         if (saved) {
           alert('Payment Successful! Registration completed.');
-          setFormData({
-            name: '',
-            city: '',
-            school: '',
-            class: '',
-            division: '',
-            mobile: '',
-            language: ''
-          });
+          setFormData({ name: '', school: '', class: '', mobile: '', language: '' });
+          setOtherSchoolName('');
         }
       },
       prefill: {
         name: formData.name,
-        contact: formData.mobile,
+        contact: formData.mobile
       },
-      theme: {
-        color: '#F97316'
-      },
+      theme: { color: '#F97316' },
       modal: {
-        ondismiss: function() {
+        ondismiss: function () {
           alert('Payment cancelled');
         }
       }
@@ -440,29 +381,55 @@ function App() {
     paymentObject.open();
   };
 
-  // Helper Functions
+  // ── Auth ──────────────────────────────────────────────────────
+
+  const handleGoogleLogin = async () => {
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: { redirectTo: window.location.origin }
+      });
+      if (error) throw error;
+      setShowLoginModal(false);
+    } catch (error) {
+      console.error('Error signing in:', error);
+      alert('Error signing in. Please try again.');
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await supabase.auth.signOut();
+      setIsAdmin(false);
+      setAdminEmail('');
+    } catch (error) {
+      console.error('Error signing out:', error);
+    }
+  };
+
+  // ── Helpers ───────────────────────────────────────────────────
+
   const handleInputChange = (e) => {
     const { name, value } = e.target;
+    if (name === 'school') setOtherSchoolName('');
     setFormData(prev => ({
       ...prev,
       [name]: value,
-      ...(name === 'city' && { school: '', language: '' }),
       ...(name === 'school' && { language: '' })
     }));
   };
 
-  const getFilteredSchools = () => {
-    return formData.city ? schools.filter(school => school.city === formData.city) : [];
-  };
+  const getFilteredSchools = () => schools;
 
   const getAvailableLanguages = () => {
     if (!formData.school) return [];
+    if (formData.school === 'Other') return ['English', 'Hindi', 'Marathi', 'Gujarati', 'Tamil', 'Telugu'];
     const school = schools.find(s => s.name === formData.school);
     return school ? school.languages : [];
   };
 
   const getReferredBy = () => {
-    if (!formData.school) return '';
+    if (!formData.school || formData.school === 'Other') return '';
     const school = schools.find(s => s.name === formData.school);
     return school ? school.devotee : '';
   };
@@ -485,97 +452,40 @@ function App() {
     }
   };
 
-  // List of allowed admin emails - CONFIGURE THIS
-  const ALLOWED_ADMINS = [
-    'aksahoo.919@gmail.com',
-    'abhaynitaidas.bavs@gmail.com'
-  ];
-
-  // Admin Functions
-  const handleGoogleLogin = async () => {
-    try {
-      const result = await signInWithPopup(auth, googleProvider);
-      const userEmail = result.user.email;
-      
-      // Check if user is in allowed admins list
-      if (!ALLOWED_ADMINS.includes(userEmail)) {
-        alert('Unauthorized: You are not an admin.');
-        await signOut(auth);
-        setShowLoginModal(false);
-        return;
-      }
-      
-      setAdminEmail(userEmail);
-      setIsAdmin(true);
-      setShowLoginModal(false);
-    } catch (error) {
-      console.error('Error signing in:', error);
-      alert('Error signing in. Please try again.');
-    }
-  };
-
-  const handleLogout = async () => {
-    try {
-      await signOut(auth);
-      setIsAdmin(false);
-      setAdminEmail('');
-    } catch (error) {
-      console.error('Error signing out:', error);
-    }
-  };
-
-  // Get filtered payments based on city and school filters
   const getFilteredPayments = () => {
     let filtered = [...payments];
-    
-    if (selectedCityFilter) {
-      filtered = filtered.filter(p => p.city === selectedCityFilter);
-    }
-    
-    if (selectedSchoolFilter) {
-      filtered = filtered.filter(p => p.school === selectedSchoolFilter);
-    }
-    
+    if (selectedCityFilter) filtered = filtered.filter(p => p.city === selectedCityFilter);
+    if (selectedSchoolFilter) filtered = filtered.filter(p => p.school === selectedSchoolFilter);
     return filtered;
   };
 
-  // Get unique cities from payments
-  const getUniqueCitiesFromPayments = () => {
-    const uniqueCities = [...new Set(payments.map(p => p.city).filter(Boolean))];
-    return uniqueCities.sort();
-  };
+  const getUniqueCitiesFromPayments = () =>
+    [...new Set(payments.map(p => p.city).filter(Boolean))].sort();
 
-  // Get unique schools from payments (optionally filtered by city)
   const getUniqueSchoolsFromPayments = () => {
-    let filteredPayments = payments;
-    if (selectedCityFilter) {
-      filteredPayments = payments.filter(p => p.city === selectedCityFilter);
-    }
-    const uniqueSchools = [...new Set(filteredPayments.map(p => p.school).filter(Boolean))];
-    return uniqueSchools.sort();
+    const base = selectedCityFilter ? payments.filter(p => p.city === selectedCityFilter) : payments;
+    return [...new Set(base.map(p => p.school).filter(Boolean))].sort();
   };
 
-  // Export to CSV with filters
   const exportToCSV = () => {
     const filteredPayments = getFilteredPayments();
-    
+
     if (filteredPayments.length === 0) {
       alert('No payments to export with the current filters.');
       return;
     }
 
-    const headers = ['Name', 'City', 'School', 'Class', 'Division', 'Mobile', 'Language', 'Referred By', 'Amount', 'Payment ID', 'Date', 'Status'];
+    const headers = ['Name', 'City', 'School', 'Class', 'Mobile', 'Language', 'Referred By', 'Amount', 'Payment ID', 'Date', 'Status'];
     const rows = filteredPayments.map(p => [
       p.name,
       p.city,
       p.school,
       p.class,
-      p.division,
       p.mobile,
       p.language,
-      p.referredBy || '',
+      p.referred_by || '',
       p.amount,
-      p.paymentId,
+      p.payment_id,
       new Date(p.timestamp).toLocaleString(),
       p.status
     ]);
@@ -585,14 +495,9 @@ function App() {
       ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
     ].join('\n');
 
-    // Create filename with filter info
     let filename = `vec_payments_${new Date().toISOString().split('T')[0]}`;
-    if (selectedCityFilter) {
-      filename += `_${selectedCityFilter.replace(/\s+/g, '_')}`;
-    }
-    if (selectedSchoolFilter) {
-      filename += `_${selectedSchoolFilter.replace(/\s+/g, '_').substring(0, 20)}`;
-    }
+    if (selectedCityFilter) filename += `_${selectedCityFilter.replace(/\s+/g, '_')}`;
+    if (selectedSchoolFilter) filename += `_${selectedSchoolFilter.replace(/\s+/g, '_').substring(0, 20)}`;
     filename += '.csv';
 
     const blob = new Blob([csvContent], { type: 'text/csv' });
@@ -604,7 +509,8 @@ function App() {
     window.URL.revokeObjectURL(url);
   };
 
-  // Loading State
+  // ── Loading State ─────────────────────────────────────────────
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-orange-50 to-yellow-50 flex items-center justify-center">
@@ -616,11 +522,13 @@ function App() {
     );
   }
 
-  // Admin Panel
+  // ── Admin Panel ───────────────────────────────────────────────
+
   if (isAdmin) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-orange-50 to-yellow-50 p-6">
         <div className="max-w-6xl mx-auto">
+
           {/* Admin Header */}
           <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
             <div className="flex justify-between items-center">
@@ -654,18 +562,16 @@ function App() {
               </button>
             </div>
 
-            {/* Filter Section */}
+            {/* Filters */}
             <div className="mb-4 p-4 bg-gray-50 rounded-lg">
               <div className="flex flex-wrap gap-4 items-end">
                 <div className="flex-1 min-w-[200px]">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Filter by City
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Filter by City</label>
                   <select
                     value={selectedCityFilter}
                     onChange={(e) => {
                       setSelectedCityFilter(e.target.value);
-                      setSelectedSchoolFilter(''); // Reset school filter when city changes
+                      setSelectedSchoolFilter('');
                     }}
                     className="w-full border border-gray-300 rounded-lg px-4 py-2"
                   >
@@ -676,9 +582,7 @@ function App() {
                   </select>
                 </div>
                 <div className="flex-1 min-w-[200px]">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Filter by School
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Filter by School</label>
                   <select
                     value={selectedSchoolFilter}
                     onChange={(e) => setSelectedSchoolFilter(e.target.value)}
@@ -692,10 +596,7 @@ function App() {
                 </div>
                 <div>
                   <button
-                    onClick={() => {
-                      setSelectedCityFilter('');
-                      setSelectedSchoolFilter('');
-                    }}
+                    onClick={() => { setSelectedCityFilter(''); setSelectedSchoolFilter(''); }}
                     className="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600"
                   >
                     Clear Filters
@@ -710,12 +611,14 @@ function App() {
                 </div>
               )}
             </div>
+
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-gray-100">
                   <tr>
                     <th className="px-4 py-2 text-left">Name</th>
                     <th className="px-4 py-2 text-left">School</th>
+                    <th className="px-4 py-2 text-left">City</th>
                     <th className="px-4 py-2 text-left">Class</th>
                     <th className="px-4 py-2 text-left">Mobile</th>
                     <th className="px-4 py-2 text-left">Amount</th>
@@ -726,10 +629,8 @@ function App() {
                 <tbody>
                   {getFilteredPayments().length === 0 ? (
                     <tr>
-                      <td colSpan="7" className="px-4 py-8 text-center text-gray-500">
-                        {payments.length === 0 
-                          ? 'No payments yet' 
-                          : 'No payments match the selected filters'}
+                      <td colSpan="8" className="px-4 py-8 text-center text-gray-500">
+                        {payments.length === 0 ? 'No payments yet' : 'No payments match the selected filters'}
                       </td>
                     </tr>
                   ) : (
@@ -737,10 +638,11 @@ function App() {
                       <tr key={payment.id} className="border-b hover:bg-gray-50">
                         <td className="px-4 py-2">{payment.name}</td>
                         <td className="px-4 py-2">{payment.school}</td>
+                        <td className="px-4 py-2">{payment.city}</td>
                         <td className="px-4 py-2">{payment.class}</td>
                         <td className="px-4 py-2">{payment.mobile}</td>
                         <td className="px-4 py-2">₹{payment.amount}</td>
-                        <td className="px-4 py-2 font-mono text-xs">{payment.paymentId}</td>
+                        <td className="px-4 py-2 font-mono text-xs">{payment.payment_id}</td>
                         <td className="px-4 py-2">{new Date(payment.timestamp).toLocaleDateString()}</td>
                       </tr>
                     ))
@@ -750,7 +652,7 @@ function App() {
             </div>
           </div>
 
-          {/* City Management Section */}
+          {/* City Management */}
           <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-xl font-bold">City Management ({cities.length})</h2>
@@ -763,7 +665,6 @@ function App() {
               </button>
             </div>
 
-            {/* Add City Form */}
             {showAddCity && (
               <div className="mb-4 p-4 bg-gray-50 rounded-lg">
                 <div className="flex gap-2">
@@ -772,21 +673,18 @@ function App() {
                     placeholder="Enter city name"
                     value={newCity}
                     onChange={(e) => setNewCity(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && addCityToFirebase()}
+                    onKeyPress={(e) => e.key === 'Enter' && addCityToDb()}
                     className="flex-1 border border-gray-300 rounded-lg px-4 py-2"
                   />
                   <button
-                    onClick={addCityToFirebase}
+                    onClick={addCityToDb}
                     className="flex items-center gap-2 bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600"
                   >
                     <Save size={20} />
                     Save
                   </button>
                   <button
-                    onClick={() => {
-                      setShowAddCity(false);
-                      setNewCity('');
-                    }}
+                    onClick={() => { setShowAddCity(false); setNewCity(''); }}
                     className="flex items-center gap-2 bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600"
                   >
                     <X size={20} />
@@ -796,40 +694,30 @@ function App() {
               </div>
             )}
 
-            {/* Cities List */}
             <div className="flex flex-wrap gap-2">
               {cities.map(city => (
-                <div key={city} className="flex items-center gap-2 bg-gray-100 rounded-lg px-3 py-2">
-                  {editingCity === city ? (
+                <div key={city.id} className="flex items-center gap-2 bg-gray-100 rounded-lg px-3 py-2">
+                  {editingCity?.id === city.id ? (
                     <div className="flex items-center gap-2">
                       <input
                         type="text"
                         value={editingCityValue}
                         onChange={(e) => setEditingCityValue(e.target.value)}
                         onKeyPress={(e) => {
-                          if (e.key === 'Enter') {
-                            updateCityInFirebase(editingCity, editingCityValue);
-                          } else if (e.key === 'Escape') {
-                            setEditingCity(null);
-                            setEditingCityValue('');
-                            loadCities(); // Reload to reset
-                          }
+                          if (e.key === 'Enter') updateCityInDb(editingCity.id, editingCity.name, editingCityValue);
+                          else if (e.key === 'Escape') { setEditingCity(null); setEditingCityValue(''); }
                         }}
                         className="border border-gray-300 rounded px-2 py-1 text-sm"
                         autoFocus
                       />
                       <button
-                        onClick={() => updateCityInFirebase(editingCity, editingCityValue)}
+                        onClick={() => updateCityInDb(editingCity.id, editingCity.name, editingCityValue)}
                         className="p-1 bg-green-500 text-white rounded hover:bg-green-600"
                       >
                         <Save size={16} />
                       </button>
                       <button
-                        onClick={() => {
-                          setEditingCity(null);
-                          setEditingCityValue('');
-                          loadCities(); // Reload to reset
-                        }}
+                        onClick={() => { setEditingCity(null); setEditingCityValue(''); }}
                         className="p-1 bg-gray-500 text-white rounded hover:bg-gray-600"
                       >
                         <X size={16} />
@@ -837,19 +725,16 @@ function App() {
                     </div>
                   ) : (
                     <>
-                      <span className="text-sm font-medium">{city}</span>
+                      <span className="text-sm font-medium">{city.name}</span>
                       <button
-                        onClick={() => {
-                          setEditingCity(city);
-                          setEditingCityValue(city);
-                        }}
+                        onClick={() => { setEditingCity(city); setEditingCityValue(city.name); }}
                         className="p-1 bg-blue-500 text-white rounded hover:bg-blue-600"
                         title="Edit city"
                       >
                         <Edit2 size={14} />
                       </button>
                       <button
-                        onClick={() => deleteCityFromFirebase(city)}
+                        onClick={() => deleteCityFromDb(city)}
                         className="p-1 bg-red-500 text-white rounded hover:bg-red-600"
                         title="Delete city"
                       >
@@ -892,7 +777,7 @@ function App() {
                 >
                   <option value="">Select City</option>
                   {cities.map(city => (
-                    <option key={city} value={city}>{city}</option>
+                    <option key={city.id} value={city.name}>{city.name}</option>
                   ))}
                 </select>
                 <input
@@ -920,17 +805,14 @@ function App() {
               </div>
               <div className="flex gap-2 mt-4">
                 <button
-                  onClick={addSchoolToFirebase}
+                  onClick={addSchoolToDb}
                   className="flex items-center gap-2 bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600"
                 >
                   <Save size={20} />
                   Save School
                 </button>
                 <button
-                  onClick={() => {
-                    setShowAddSchool(false);
-                    setNewSchool({ name: '', city: '', devotee: '', languages: [] });
-                  }}
+                  onClick={() => { setShowAddSchool(false); setNewSchool({ name: '', city: '', devotee: '', languages: [] }); }}
                   className="flex items-center gap-2 bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600"
                 >
                   <X size={20} />
@@ -960,7 +842,7 @@ function App() {
                         className="border border-gray-300 rounded-lg px-4 py-2"
                       >
                         {cities.map(city => (
-                          <option key={city} value={city}>{city}</option>
+                          <option key={city.id} value={city.name}>{city.name}</option>
                         ))}
                       </select>
                       <input
@@ -986,7 +868,7 @@ function App() {
                       </div>
                       <div className="flex gap-2 md:col-span-2">
                         <button
-                          onClick={() => updateSchoolInFirebase(school.id)}
+                          onClick={() => updateSchoolInDb(school.id)}
                           className="flex items-center gap-2 bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600"
                         >
                           <Save size={20} />
@@ -1017,7 +899,7 @@ function App() {
                           <Edit2 size={20} />
                         </button>
                         <button
-                          onClick={() => deleteSchoolFromFirebase(school.id)}
+                          onClick={() => deleteSchoolFromDb(school.id)}
                           className="p-2 bg-red-500 text-white rounded-lg hover:bg-red-600"
                         >
                           <Trash2 size={20} />
@@ -1029,12 +911,14 @@ function App() {
               ))}
             </div>
           </div>
+
         </div>
       </div>
     );
   }
 
-  // Student Registration Form
+  // ── Student Registration Form ─────────────────────────────────
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-orange-50 to-yellow-50 flex items-center justify-center p-4">
       <div className="absolute top-4 right-4">
@@ -1071,7 +955,6 @@ function App() {
       {/* Student Form */}
       <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md relative overflow-hidden">
         <div className="relative z-10">
-          {/* Logo */}
           <div className="flex justify-center mb-6">
             <div className="w-20 h-20 bg-orange-600 rounded-full flex items-center justify-center">
               <span className="text-white font-bold text-2xl">JD</span>
@@ -1079,7 +962,7 @@ function App() {
           </div>
 
           <h1 className="text-3xl font-bold text-center text-blue-500 mb-6">
-            Value Education Contest
+            ŚREṢṬHA Contest
           </h1>
 
           <div className="space-y-4">
@@ -1093,29 +976,32 @@ function App() {
             />
 
             <select
-              name="city"
-              value={formData.city}
-              onChange={handleInputChange}
-              className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none"
-            >
-              <option value="">Select City</option>
-              {cities.map(city => (
-                <option key={city} value={city}>{city}</option>
-              ))}
-            </select>
-
-            <select
               name="school"
               value={formData.school}
               onChange={handleInputChange}
-              disabled={!formData.city}
-              className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none disabled:bg-gray-100"
+              className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none"
             >
               <option value="">Select School</option>
               {getFilteredSchools().map(school => (
                 <option key={school.id} value={school.name}>{school.name}</option>
               ))}
+              <option value="Other">Other</option>
             </select>
+
+            {formData.school === 'Other' && (
+              <>
+                <input
+                  type="text"
+                  placeholder="Enter your school name (optional)"
+                  value={otherSchoolName}
+                  onChange={(e) => setOtherSchoolName(e.target.value)}
+                  className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none"
+                />
+                <p className="text-red-600 font-bold text-center text-sm">
+                  Please collect your booklet from ISKCON ABIDS temple only
+                </p>
+              </>
+            )}
 
             <select
               name="class"
@@ -1128,15 +1014,6 @@ function App() {
                 <option key={cls} value={cls}>{cls}</option>
               ))}
             </select>
-
-            <input
-              type="text"
-              name="division"
-              placeholder="Division (e.g., A, B, C)"
-              value={formData.division}
-              onChange={handleInputChange}
-              className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none"
-            />
 
             <input
               type="tel"
