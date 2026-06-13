@@ -1,0 +1,65 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper function to check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    // Helper function to check if user is an admin
+    // This version checks against an 'admins' collection in Firestore
+    // More scalable - you can add/remove admins without redeploying rules
+    function isAdmin() {
+      return isAuthenticated() && 
+             exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+    
+    // Admins Collection - Only existing admins can read it
+    match /admins/{adminId} {
+      allow read: if isAdmin();
+      allow write: if false; // Admins must be added manually via Firebase Console
+    }
+    
+    // Cities Collection
+    match /cities/{cityId} {
+      // Allow public read access (for student form dropdown)
+      allow read: if true;
+      
+      // Allow admins to create, update, and delete cities
+      allow create: if isAdmin();
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+    
+    // Schools Collection
+    match /schools/{schoolId} {
+      // Allow public read access (for student form dropdown)
+      allow read: if true;
+      
+      // Allow admins to create, update, and delete schools
+      allow create: if isAdmin();
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+    
+    // Payments Collection
+    match /payments/{paymentId} {
+      // Allow anyone to create payment records (for payment processing)
+      allow create: if true;
+      
+      // Allow admins to read all payments
+      allow read: if isAdmin();
+      
+      // Prevent updates and deletes (payments should be immutable)
+      allow update: if false;
+      allow delete: if false;
+    }
+    
+    // Deny all other collections
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
+
