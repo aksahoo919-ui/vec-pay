@@ -15,7 +15,6 @@ function App() {
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // Form state
   const [formData, setFormData] = useState({
     name: '',
     school: '',
@@ -25,7 +24,7 @@ function App() {
   });
   const [otherSchoolName, setOtherSchoolName] = useState('');
 
-  // Data state — cities is {id, name}[]
+  // cities is {id, name}[]
   const [cities, setCities] = useState([]);
   const [schools, setSchools] = useState([]);
   const [classes] = useState(['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th', '10th', '11th', '12th']);
@@ -35,17 +34,15 @@ function App() {
   const [showAddSchool, setShowAddSchool] = useState(false);
   const [newSchool, setNewSchool] = useState({ name: '', city: '', devotee: '', languages: [] });
 
-  // City management state — editingCity is {id, name} | null
+  // editingCity is {id, name} | null
   const [showAddCity, setShowAddCity] = useState(false);
   const [newCity, setNewCity] = useState('');
   const [editingCity, setEditingCity] = useState(null);
   const [editingCityValue, setEditingCityValue] = useState('');
 
-  // Filter state for CSV export
   const [selectedCityFilter, setSelectedCityFilter] = useState('');
   const [selectedSchoolFilter, setSelectedSchoolFilter] = useState('');
 
-  // Load data on mount; listen for auth state changes
   useEffect(() => {
     loadCities();
     loadSchools();
@@ -69,7 +66,7 @@ function App() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // ── Data Loading ─────────────────────────────────────────────
+  // ── Data Loading ──────────────────────────────────────────────
 
   const loadCities = async () => {
     try {
@@ -211,27 +208,14 @@ function App() {
   // ── City CRUD ─────────────────────────────────────────────────
 
   const addCityToDb = async () => {
-    if (!newCity.trim()) {
-      alert('Please enter a city name');
-      return;
-    }
+    if (!newCity.trim()) { alert('Please enter a city name'); return; }
 
     const cityName = newCity.trim();
-
-    if (cities.some(c => c.name === cityName)) {
-      alert('City already exists');
-      return;
-    }
+    if (cities.some(c => c.name === cityName)) { alert('City already exists'); return; }
 
     try {
-      const { data, error } = await supabase
-        .from('cities')
-        .insert({ name: cityName })
-        .select()
-        .single();
-
+      const { data, error } = await supabase.from('cities').insert({ name: cityName }).select().single();
       if (error) throw error;
-
       setCities([...cities, data].sort((a, b) => a.name.localeCompare(b.name)));
       setNewCity('');
       setShowAddCity(false);
@@ -243,35 +227,17 @@ function App() {
   };
 
   const updateCityInDb = async (cityId, oldCityName, newCityName) => {
-    if (!newCityName.trim()) {
-      alert('Please enter a city name');
-      return;
-    }
+    if (!newCityName.trim()) { alert('Please enter a city name'); return; }
 
     const trimmedNewName = newCityName.trim();
-
-    if (trimmedNewName === oldCityName) {
-      setEditingCity(null);
-      return;
-    }
-
-    if (cities.some(c => c.name === trimmedNewName)) {
-      alert('City already exists');
-      return;
-    }
+    if (trimmedNewName === oldCityName) { setEditingCity(null); return; }
+    if (cities.some(c => c.name === trimmedNewName)) { alert('City already exists'); return; }
 
     try {
-      const { error: cityError } = await supabase
-        .from('cities')
-        .update({ name: trimmedNewName })
-        .eq('id', cityId);
+      const { error: cityError } = await supabase.from('cities').update({ name: trimmedNewName }).eq('id', cityId);
       if (cityError) throw cityError;
 
-      // Cascade rename to all schools in this city
-      const { error: schoolError } = await supabase
-        .from('schools')
-        .update({ city: trimmedNewName })
-        .eq('city', oldCityName);
+      const { error: schoolError } = await supabase.from('schools').update({ city: trimmedNewName }).eq('city', oldCityName);
       if (schoolError) throw schoolError;
 
       setCities(cities.map(c => c.id === cityId ? { ...c, name: trimmedNewName } : c).sort((a, b) => a.name.localeCompare(b.name)));
@@ -288,10 +254,9 @@ function App() {
   const deleteCityFromDb = async (city) => {
     const schoolsUsingCity = schools.filter(s => s.city === city.name);
     if (schoolsUsingCity.length > 0) {
-      alert(`Cannot delete city. ${schoolsUsingCity.length} school(s) are using this city. Please update or delete those schools first.`);
+      alert(`Cannot delete city. ${schoolsUsingCity.length} school(s) are using this city.`);
       return;
     }
-
     if (!confirm(`Are you sure you want to delete "${city.name}"?`)) return;
 
     try {
@@ -307,15 +272,13 @@ function App() {
 
   // ── Razorpay ──────────────────────────────────────────────────
 
-  const loadRazorpayScript = () => {
-    return new Promise((resolve) => {
-      const script = document.createElement('script');
-      script.src = 'https://checkout.razorpay.com/v1/checkout.js';
-      script.onload = () => resolve(true);
-      script.onerror = () => resolve(false);
-      document.body.appendChild(script);
-    });
-  };
+  const loadRazorpayScript = () => new Promise((resolve) => {
+    const script = document.createElement('script');
+    script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+    script.onload = () => resolve(true);
+    script.onerror = () => resolve(false);
+    document.body.appendChild(script);
+  });
 
   const handlePayment = async () => {
     if (!formData.name || !formData.school || !formData.class || !formData.mobile || !formData.language) {
@@ -324,11 +287,7 @@ function App() {
     }
 
     const res = await loadRazorpayScript();
-
-    if (!res) {
-      alert('Razorpay SDK failed to load. Please check your internet connection.');
-      return;
-    }
+    if (!res) { alert('Razorpay SDK failed to load. Please check your internet connection.'); return; }
 
     const options = {
       key: RAZORPAY_KEY_ID,
@@ -365,20 +324,12 @@ function App() {
           setOtherSchoolName('');
         }
       },
-      prefill: {
-        name: formData.name,
-        contact: formData.mobile
-      },
-      theme: { color: '#F97316' },
-      modal: {
-        ondismiss: function () {
-          alert('Payment cancelled');
-        }
-      }
+      prefill: { name: formData.name, contact: formData.mobile },
+      theme: { color: '#ea580c' },
+      modal: { ondismiss: function () { alert('Payment cancelled'); } }
     };
 
-    const paymentObject = new window.Razorpay(options);
-    paymentObject.open();
+    new window.Razorpay(options).open();
   };
 
   // ── Auth ──────────────────────────────────────────────────────
@@ -438,16 +389,12 @@ function App() {
     if (isNew) {
       setNewSchool(prev => ({
         ...prev,
-        languages: prev.languages.includes(lang)
-          ? prev.languages.filter(l => l !== lang)
-          : [...prev.languages, lang]
+        languages: prev.languages.includes(lang) ? prev.languages.filter(l => l !== lang) : [...prev.languages, lang]
       }));
     } else if (editingSchool) {
       setEditingSchool(prev => ({
         ...prev,
-        languages: prev.languages.includes(lang)
-          ? prev.languages.filter(l => l !== lang)
-          : [...prev.languages, lang]
+        languages: prev.languages.includes(lang) ? prev.languages.filter(l => l !== lang) : [...prev.languages, lang]
       }));
     }
   };
@@ -469,31 +416,16 @@ function App() {
 
   const exportToCSV = () => {
     const filteredPayments = getFilteredPayments();
-
-    if (filteredPayments.length === 0) {
-      alert('No payments to export with the current filters.');
-      return;
-    }
+    if (filteredPayments.length === 0) { alert('No payments to export with the current filters.'); return; }
 
     const headers = ['Name', 'City', 'School', 'Class', 'Mobile', 'Language', 'Referred By', 'Amount', 'Payment ID', 'Date', 'Status'];
     const rows = filteredPayments.map(p => [
-      p.name,
-      p.city,
-      p.school,
-      p.class,
-      p.mobile,
-      p.language,
-      p.referred_by || '',
-      p.amount,
-      p.payment_id,
-      new Date(p.timestamp).toLocaleString(),
-      p.status
+      p.name, p.city, p.school, p.class, p.mobile, p.language,
+      p.referred_by || '', p.amount, p.payment_id,
+      new Date(p.timestamp).toLocaleString(), p.status
     ]);
 
-    const csvContent = [
-      headers.join(','),
-      ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
-    ].join('\n');
+    const csvContent = [headers.join(','), ...rows.map(row => row.map(cell => `"${cell}"`).join(','))].join('\n');
 
     let filename = `vec_payments_${new Date().toISOString().split('T')[0]}`;
     if (selectedCityFilter) filename += `_${selectedCityFilter.replace(/\s+/g, '_')}`;
@@ -503,20 +435,27 @@ function App() {
     const blob = new Blob([csvContent], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.click();
+    a.href = url; a.download = filename; a.click();
     window.URL.revokeObjectURL(url);
   };
 
-  // ── Loading State ─────────────────────────────────────────────
+  // ── Loading ───────────────────────────────────────────────────
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-orange-50 to-yellow-50 flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center"
+        style={{ background: 'linear-gradient(135deg, #1c0a00 0%, #7c2d12 40%, #991b1b 75%, #c2410c 100%)' }}>
         <div className="text-center">
-          <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-orange-500 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading...</p>
+          <div className="w-20 h-20 bg-white/10 rounded-2xl flex items-center justify-center mx-auto mb-6 animate-pulse">
+            <span style={{ color: 'white', fontSize: '2.2rem', fontFamily: 'Georgia, serif' }}>ॐ</span>
+          </div>
+          <div className="flex gap-2 justify-center mb-4">
+            {[0, 150, 300].map(delay => (
+              <div key={delay} className="w-2 h-2 bg-orange-400 rounded-full animate-bounce"
+                style={{ animationDelay: `${delay}ms` }} />
+            ))}
+          </div>
+          <p className="text-orange-200 text-sm font-medium">Loading ŚREṢṬHA Contest…</p>
         </div>
       </div>
     );
@@ -526,124 +465,122 @@ function App() {
 
   if (isAdmin) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-orange-50 to-yellow-50 p-6">
-        <div className="max-w-6xl mx-auto">
+      <div className="min-h-screen bg-gray-100">
 
-          {/* Admin Header */}
-          <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
-            <div className="flex justify-between items-center">
-              <div>
-                <h1 className="text-3xl font-bold text-orange-600">VEC Admin Panel</h1>
-                <p className="text-gray-600 mt-1">Logged in as: {adminEmail}</p>
+        {/* Topbar */}
+        <div style={{ background: 'linear-gradient(135deg, #ea580c, #dc2626)' }} className="shadow-lg sticky top-0 z-30">
+          <div className="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
+                <span style={{ fontFamily: 'Georgia, serif', color: 'white', fontSize: '1.3rem' }}>ॐ</span>
               </div>
-              <button
-                onClick={handleLogout}
-                className="flex items-center gap-2 bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600"
-              >
-                <LogOut size={20} />
-                Logout
-              </button>
+              <div>
+                <h1 className="text-white font-bold text-lg leading-none">ŚREṢṬHA Admin</h1>
+                <p className="text-orange-200 text-xs mt-0.5">{adminEmail}</p>
+              </div>
             </div>
+            <button onClick={handleLogout}
+              className="flex items-center gap-2 bg-white/15 hover:bg-white/25 text-white px-4 py-2 rounded-xl transition-all text-sm font-medium border border-white/20">
+              <LogOut size={16} />
+              Logout
+            </button>
+          </div>
+        </div>
+
+        <div className="max-w-7xl mx-auto p-6 space-y-6">
+
+          {/* Stats */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {[
+              { label: 'Total Registrations', value: payments.length, sub: 'All time', color: 'text-gray-900' },
+              { label: 'Total Revenue', value: `₹${payments.reduce((s, p) => s + (p.amount || 0), 0).toLocaleString()}`, sub: 'Collected via Razorpay', color: 'text-green-600' },
+              { label: 'Active Schools', value: schools.length, sub: 'Across all cities', color: 'text-orange-600' },
+            ].map(stat => (
+              <div key={stat.label} className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+                <p className="text-gray-500 text-sm font-medium">{stat.label}</p>
+                <p className={`text-4xl font-bold mt-2 ${stat.color}`}>{stat.value}</p>
+                <p className="text-xs text-gray-400 mt-1">{stat.sub}</p>
+              </div>
+            ))}
           </div>
 
           {/* Payments Section */}
-          <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-bold">
-                Payment Records ({getFilteredPayments().length} of {payments.length})
-              </h2>
-              <button
-                onClick={exportToCSV}
-                disabled={getFilteredPayments().length === 0}
-                className="flex items-center gap-2 bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600 disabled:bg-gray-300"
-              >
-                <Download size={20} />
-                Export to CSV
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+            <div className="flex justify-between items-center px-6 py-5 border-b border-gray-100">
+              <div>
+                <h2 className="text-lg font-bold text-gray-900">Payment Records</h2>
+                <p className="text-sm text-gray-400 mt-0.5">{getFilteredPayments().length} of {payments.length} shown</p>
+              </div>
+              <button onClick={exportToCSV} disabled={getFilteredPayments().length === 0}
+                className="flex items-center gap-2 bg-green-500 hover:bg-green-600 disabled:bg-gray-200 disabled:text-gray-400 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-all">
+                <Download size={16} />
+                Export CSV
               </button>
             </div>
 
             {/* Filters */}
-            <div className="mb-4 p-4 bg-gray-50 rounded-lg">
-              <div className="flex flex-wrap gap-4 items-end">
-                <div className="flex-1 min-w-[200px]">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Filter by City</label>
-                  <select
-                    value={selectedCityFilter}
-                    onChange={(e) => {
-                      setSelectedCityFilter(e.target.value);
-                      setSelectedSchoolFilter('');
-                    }}
-                    className="w-full border border-gray-300 rounded-lg px-4 py-2"
-                  >
+            <div className="px-6 py-4 bg-gray-50 border-b border-gray-100">
+              <div className="flex flex-wrap gap-3 items-end">
+                <div className="flex-1 min-w-[180px]">
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Filter by City</label>
+                  <select value={selectedCityFilter}
+                    onChange={(e) => { setSelectedCityFilter(e.target.value); setSelectedSchoolFilter(''); }}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white focus:border-orange-400 outline-none">
                     <option value="">All Cities</option>
-                    {getUniqueCitiesFromPayments().map(city => (
-                      <option key={city} value={city}>{city}</option>
-                    ))}
+                    {getUniqueCitiesFromPayments().map(city => <option key={city} value={city}>{city}</option>)}
                   </select>
                 </div>
-                <div className="flex-1 min-w-[200px]">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Filter by School</label>
-                  <select
-                    value={selectedSchoolFilter}
-                    onChange={(e) => setSelectedSchoolFilter(e.target.value)}
-                    className="w-full border border-gray-300 rounded-lg px-4 py-2"
-                  >
+                <div className="flex-1 min-w-[180px]">
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Filter by School</label>
+                  <select value={selectedSchoolFilter} onChange={(e) => setSelectedSchoolFilter(e.target.value)}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white focus:border-orange-400 outline-none">
                     <option value="">All Schools</option>
-                    {getUniqueSchoolsFromPayments().map(school => (
-                      <option key={school} value={school}>{school}</option>
-                    ))}
+                    {getUniqueSchoolsFromPayments().map(school => <option key={school} value={school}>{school}</option>)}
                   </select>
                 </div>
-                <div>
-                  <button
-                    onClick={() => { setSelectedCityFilter(''); setSelectedSchoolFilter(''); }}
-                    className="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600"
-                  >
-                    Clear Filters
+                {(selectedCityFilter || selectedSchoolFilter) && (
+                  <button onClick={() => { setSelectedCityFilter(''); setSelectedSchoolFilter(''); }}
+                    className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 bg-white border border-gray-200 px-3 py-2 rounded-xl transition-all">
+                    <X size={14} /> Clear
                   </button>
-                </div>
+                )}
               </div>
-              {(selectedCityFilter || selectedSchoolFilter) && (
-                <div className="mt-2 text-sm text-gray-600">
-                  Showing: {selectedCityFilter ? `City: ${selectedCityFilter}` : ''}
-                  {selectedCityFilter && selectedSchoolFilter ? ' | ' : ''}
-                  {selectedSchoolFilter ? `School: ${selectedSchoolFilter}` : ''}
-                </div>
-              )}
             </div>
 
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
-                <thead className="bg-gray-100">
-                  <tr>
-                    <th className="px-4 py-2 text-left">Name</th>
-                    <th className="px-4 py-2 text-left">School</th>
-                    <th className="px-4 py-2 text-left">City</th>
-                    <th className="px-4 py-2 text-left">Class</th>
-                    <th className="px-4 py-2 text-left">Mobile</th>
-                    <th className="px-4 py-2 text-left">Amount</th>
-                    <th className="px-4 py-2 text-left">Payment ID</th>
-                    <th className="px-4 py-2 text-left">Date</th>
+                <thead>
+                  <tr className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left font-semibold">Name</th>
+                    <th className="px-6 py-3 text-left font-semibold">School</th>
+                    <th className="px-6 py-3 text-left font-semibold">City</th>
+                    <th className="px-6 py-3 text-left font-semibold">Class</th>
+                    <th className="px-6 py-3 text-left font-semibold">Mobile</th>
+                    <th className="px-6 py-3 text-left font-semibold">Amount</th>
+                    <th className="px-6 py-3 text-left font-semibold">Payment ID</th>
+                    <th className="px-6 py-3 text-left font-semibold">Date</th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody className="divide-y divide-gray-50">
                   {getFilteredPayments().length === 0 ? (
                     <tr>
-                      <td colSpan="8" className="px-4 py-8 text-center text-gray-500">
+                      <td colSpan="8" className="px-6 py-12 text-center text-gray-400">
                         {payments.length === 0 ? 'No payments yet' : 'No payments match the selected filters'}
                       </td>
                     </tr>
                   ) : (
                     getFilteredPayments().map(payment => (
-                      <tr key={payment.id} className="border-b hover:bg-gray-50">
-                        <td className="px-4 py-2">{payment.name}</td>
-                        <td className="px-4 py-2">{payment.school}</td>
-                        <td className="px-4 py-2">{payment.city}</td>
-                        <td className="px-4 py-2">{payment.class}</td>
-                        <td className="px-4 py-2">{payment.mobile}</td>
-                        <td className="px-4 py-2">₹{payment.amount}</td>
-                        <td className="px-4 py-2 font-mono text-xs">{payment.payment_id}</td>
-                        <td className="px-4 py-2">{new Date(payment.timestamp).toLocaleDateString()}</td>
+                      <tr key={payment.id} className="hover:bg-orange-50/40 transition-colors">
+                        <td className="px-6 py-3 font-medium text-gray-900">{payment.name}</td>
+                        <td className="px-6 py-3 text-gray-600 max-w-[200px] truncate">{payment.school}</td>
+                        <td className="px-6 py-3 text-gray-600">{payment.city}</td>
+                        <td className="px-6 py-3 text-gray-600">{payment.class}</td>
+                        <td className="px-6 py-3 text-gray-600">{payment.mobile}</td>
+                        <td className="px-6 py-3">
+                          <span className="bg-green-100 text-green-700 font-semibold px-2 py-0.5 rounded-lg text-xs">₹{payment.amount}</span>
+                        </td>
+                        <td className="px-6 py-3 font-mono text-xs text-gray-400">{payment.payment_id}</td>
+                        <td className="px-6 py-3 text-gray-500 text-xs">{new Date(payment.timestamp).toLocaleDateString()}</td>
                       </tr>
                     ))
                   )}
@@ -653,256 +590,189 @@ function App() {
           </div>
 
           {/* City Management */}
-          <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-bold">City Management ({cities.length})</h2>
-              <button
-                onClick={() => setShowAddCity(!showAddCity)}
-                className="flex items-center gap-2 bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600"
-              >
-                <Plus size={20} />
-                Add New City
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+            <div className="flex justify-between items-center px-6 py-5 border-b border-gray-100">
+              <div>
+                <h2 className="text-lg font-bold text-gray-900">City Management</h2>
+                <p className="text-sm text-gray-400 mt-0.5">{cities.length} cities</p>
+              </div>
+              <button onClick={() => setShowAddCity(!showAddCity)}
+                className="flex items-center gap-2 bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-all">
+                <Plus size={16} />
+                Add City
               </button>
             </div>
 
-            {showAddCity && (
-              <div className="mb-4 p-4 bg-gray-50 rounded-lg">
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    placeholder="Enter city name"
-                    value={newCity}
+            <div className="px-6 py-5">
+              {showAddCity && (
+                <div className="flex gap-2 mb-5 p-4 bg-gray-50 rounded-xl border border-gray-100">
+                  <input type="text" placeholder="Enter city name" value={newCity}
                     onChange={(e) => setNewCity(e.target.value)}
                     onKeyPress={(e) => e.key === 'Enter' && addCityToDb()}
-                    className="flex-1 border border-gray-300 rounded-lg px-4 py-2"
-                  />
-                  <button
-                    onClick={addCityToDb}
-                    className="flex items-center gap-2 bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600"
-                  >
-                    <Save size={20} />
-                    Save
+                    className="flex-1 border border-gray-200 rounded-xl px-4 py-2 text-sm focus:border-orange-400 outline-none" />
+                  <button onClick={addCityToDb}
+                    className="flex items-center gap-1.5 bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-all">
+                    <Save size={15} /> Save
                   </button>
-                  <button
-                    onClick={() => { setShowAddCity(false); setNewCity(''); }}
-                    className="flex items-center gap-2 bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600"
-                  >
-                    <X size={20} />
-                    Cancel
+                  <button onClick={() => { setShowAddCity(false); setNewCity(''); }}
+                    className="flex items-center gap-1.5 bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-xl text-sm font-semibold transition-all">
+                    <X size={15} /> Cancel
+                  </button>
+                </div>
+              )}
+
+              <div className="flex flex-wrap gap-2">
+                {cities.map(city => (
+                  <div key={city.id} className="flex items-center gap-2 bg-gray-100 hover:bg-gray-200 rounded-xl px-3 py-2 transition-colors">
+                    {editingCity?.id === city.id ? (
+                      <div className="flex items-center gap-2">
+                        <input type="text" value={editingCityValue} onChange={(e) => setEditingCityValue(e.target.value)}
+                          onKeyPress={(e) => { if (e.key === 'Enter') updateCityInDb(editingCity.id, editingCity.name, editingCityValue); }}
+                          className="border border-gray-300 rounded-lg px-2 py-1 text-sm w-28 focus:border-orange-400 outline-none" autoFocus />
+                        <button onClick={() => updateCityInDb(editingCity.id, editingCity.name, editingCityValue)}
+                          className="p-1.5 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors">
+                          <Save size={13} />
+                        </button>
+                        <button onClick={() => { setEditingCity(null); setEditingCityValue(''); }}
+                          className="p-1.5 bg-gray-400 text-white rounded-lg hover:bg-gray-500 transition-colors">
+                          <X size={13} />
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <span className="text-sm font-medium text-gray-700">{city.name}</span>
+                        <button onClick={() => { setEditingCity(city); setEditingCityValue(city.name); }}
+                          className="p-1 text-blue-500 hover:text-blue-700 transition-colors">
+                          <Edit2 size={13} />
+                        </button>
+                        <button onClick={() => deleteCityFromDb(city)}
+                          className="p-1 text-red-400 hover:text-red-600 transition-colors">
+                          <Trash2 size={13} />
+                        </button>
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Schools Management */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+            <div className="flex justify-between items-center px-6 py-5 border-b border-gray-100">
+              <div>
+                <h2 className="text-lg font-bold text-gray-900">Schools Management</h2>
+                <p className="text-sm text-gray-400 mt-0.5">{schools.length} schools</p>
+              </div>
+              <button onClick={() => setShowAddSchool(!showAddSchool)}
+                className="flex items-center gap-2 bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-all">
+                <Plus size={16} />
+                Add School
+              </button>
+            </div>
+
+            {showAddSchool && (
+              <div className="px-6 py-5 bg-gray-50 border-b border-gray-100">
+                <h3 className="text-sm font-bold text-gray-700 mb-4">Add New School</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <input type="text" placeholder="School Name" value={newSchool.name}
+                    onChange={(e) => setNewSchool(prev => ({ ...prev, name: e.target.value }))}
+                    className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-orange-400 outline-none bg-white" />
+                  <select value={newSchool.city} onChange={(e) => setNewSchool(prev => ({ ...prev, city: e.target.value }))}
+                    className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-orange-400 outline-none bg-white">
+                    <option value="">Select City</option>
+                    {cities.map(city => <option key={city.id} value={city.name}>{city.name}</option>)}
+                  </select>
+                  <input type="text" placeholder="Devotee Name" value={newSchool.devotee}
+                    onChange={(e) => setNewSchool(prev => ({ ...prev, devotee: e.target.value }))}
+                    className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-orange-400 outline-none bg-white" />
+                  <div className="border border-gray-200 rounded-xl px-4 py-2.5 bg-white">
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Languages</p>
+                    <div className="flex flex-wrap gap-2">
+                      {['English', 'Hindi', 'Marathi', 'Gujarati', 'Tamil', 'Telugu'].map(lang => (
+                        <label key={lang} className="flex items-center gap-1.5 cursor-pointer">
+                          <input type="checkbox" checked={newSchool.languages.includes(lang)} onChange={() => toggleLanguage(lang, true)}
+                            className="accent-orange-500" />
+                          <span className="text-sm text-gray-700">{lang}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex gap-2 mt-4">
+                  <button onClick={addSchoolToDb}
+                    className="flex items-center gap-2 bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-all">
+                    <Save size={15} /> Save School
+                  </button>
+                  <button onClick={() => { setShowAddSchool(false); setNewSchool({ name: '', city: '', devotee: '', languages: [] }); }}
+                    className="flex items-center gap-2 bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-xl text-sm font-semibold transition-all">
+                    <X size={15} /> Cancel
                   </button>
                 </div>
               </div>
             )}
 
-            <div className="flex flex-wrap gap-2">
-              {cities.map(city => (
-                <div key={city.id} className="flex items-center gap-2 bg-gray-100 rounded-lg px-3 py-2">
-                  {editingCity?.id === city.id ? (
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="text"
-                        value={editingCityValue}
-                        onChange={(e) => setEditingCityValue(e.target.value)}
-                        onKeyPress={(e) => {
-                          if (e.key === 'Enter') updateCityInDb(editingCity.id, editingCity.name, editingCityValue);
-                          else if (e.key === 'Escape') { setEditingCity(null); setEditingCityValue(''); }
-                        }}
-                        className="border border-gray-300 rounded px-2 py-1 text-sm"
-                        autoFocus
-                      />
-                      <button
-                        onClick={() => updateCityInDb(editingCity.id, editingCity.name, editingCityValue)}
-                        className="p-1 bg-green-500 text-white rounded hover:bg-green-600"
-                      >
-                        <Save size={16} />
-                      </button>
-                      <button
-                        onClick={() => { setEditingCity(null); setEditingCityValue(''); }}
-                        className="p-1 bg-gray-500 text-white rounded hover:bg-gray-600"
-                      >
-                        <X size={16} />
-                      </button>
-                    </div>
-                  ) : (
-                    <>
-                      <span className="text-sm font-medium">{city.name}</span>
-                      <button
-                        onClick={() => { setEditingCity(city); setEditingCityValue(city.name); }}
-                        className="p-1 bg-blue-500 text-white rounded hover:bg-blue-600"
-                        title="Edit city"
-                      >
-                        <Edit2 size={14} />
-                      </button>
-                      <button
-                        onClick={() => deleteCityFromDb(city)}
-                        className="p-1 bg-red-500 text-white rounded hover:bg-red-600"
-                        title="Delete city"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Add School Button */}
-          <div className="mb-6">
-            <button
-              onClick={() => setShowAddSchool(!showAddSchool)}
-              className="flex items-center gap-2 bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600"
-            >
-              <Plus size={20} />
-              Add New School
-            </button>
-          </div>
-
-          {/* Add School Form */}
-          {showAddSchool && (
-            <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
-              <h2 className="text-xl font-bold mb-4">Add New School</h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <input
-                  type="text"
-                  placeholder="School Name"
-                  value={newSchool.name}
-                  onChange={(e) => setNewSchool(prev => ({ ...prev, name: e.target.value }))}
-                  className="border border-gray-300 rounded-lg px-4 py-2"
-                />
-                <select
-                  value={newSchool.city}
-                  onChange={(e) => setNewSchool(prev => ({ ...prev, city: e.target.value }))}
-                  className="border border-gray-300 rounded-lg px-4 py-2"
-                >
-                  <option value="">Select City</option>
-                  {cities.map(city => (
-                    <option key={city.id} value={city.name}>{city.name}</option>
-                  ))}
-                </select>
-                <input
-                  type="text"
-                  placeholder="Devotee Name"
-                  value={newSchool.devotee}
-                  onChange={(e) => setNewSchool(prev => ({ ...prev, devotee: e.target.value }))}
-                  className="border border-gray-300 rounded-lg px-4 py-2"
-                />
-                <div className="border border-gray-300 rounded-lg px-4 py-2">
-                  <p className="text-sm text-gray-600 mb-2">Languages:</p>
-                  <div className="flex flex-wrap gap-2">
-                    {['English', 'Hindi', 'Marathi', 'Gujarati', 'Tamil', 'Telugu'].map(lang => (
-                      <label key={lang} className="flex items-center gap-1 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={newSchool.languages.includes(lang)}
-                          onChange={() => toggleLanguage(lang, true)}
-                        />
-                        <span className="text-sm">{lang}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              </div>
-              <div className="flex gap-2 mt-4">
-                <button
-                  onClick={addSchoolToDb}
-                  className="flex items-center gap-2 bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600"
-                >
-                  <Save size={20} />
-                  Save School
-                </button>
-                <button
-                  onClick={() => { setShowAddSchool(false); setNewSchool({ name: '', city: '', devotee: '', languages: [] }); }}
-                  className="flex items-center gap-2 bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600"
-                >
-                  <X size={20} />
-                  Cancel
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Schools List */}
-          <div className="bg-white rounded-lg shadow-lg p-6">
-            <h2 className="text-xl font-bold mb-4">Schools Management ({schools.length})</h2>
-            <div className="space-y-4">
+            <div className="divide-y divide-gray-50">
               {schools.map(school => (
-                <div key={school.id} className="border border-gray-200 rounded-lg p-4">
+                <div key={school.id} className="px-6 py-4">
                   {editingSchool?.id === school.id ? (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <input
-                        type="text"
-                        value={editingSchool.name}
+                      <input type="text" value={editingSchool.name}
                         onChange={(e) => setEditingSchool(prev => ({ ...prev, name: e.target.value }))}
-                        className="border border-gray-300 rounded-lg px-4 py-2"
-                      />
-                      <select
-                        value={editingSchool.city}
+                        className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-orange-400 outline-none" />
+                      <select value={editingSchool.city}
                         onChange={(e) => setEditingSchool(prev => ({ ...prev, city: e.target.value }))}
-                        className="border border-gray-300 rounded-lg px-4 py-2"
-                      >
-                        {cities.map(city => (
-                          <option key={city.id} value={city.name}>{city.name}</option>
-                        ))}
+                        className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-orange-400 outline-none">
+                        {cities.map(city => <option key={city.id} value={city.name}>{city.name}</option>)}
                       </select>
-                      <input
-                        type="text"
-                        value={editingSchool.devotee}
+                      <input type="text" value={editingSchool.devotee}
                         onChange={(e) => setEditingSchool(prev => ({ ...prev, devotee: e.target.value }))}
-                        className="border border-gray-300 rounded-lg px-4 py-2"
-                      />
-                      <div className="border border-gray-300 rounded-lg px-4 py-2">
-                        <p className="text-sm text-gray-600 mb-2">Languages:</p>
+                        className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-orange-400 outline-none" />
+                      <div className="border border-gray-200 rounded-xl px-4 py-2.5">
+                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Languages</p>
                         <div className="flex flex-wrap gap-2">
                           {['English', 'Hindi', 'Marathi', 'Gujarati', 'Tamil', 'Telugu'].map(lang => (
-                            <label key={lang} className="flex items-center gap-1 cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={editingSchool.languages.includes(lang)}
-                                onChange={() => toggleLanguage(lang)}
-                              />
-                              <span className="text-sm">{lang}</span>
+                            <label key={lang} className="flex items-center gap-1.5 cursor-pointer">
+                              <input type="checkbox" checked={editingSchool.languages.includes(lang)} onChange={() => toggleLanguage(lang)}
+                                className="accent-orange-500" />
+                              <span className="text-sm text-gray-700">{lang}</span>
                             </label>
                           ))}
                         </div>
                       </div>
                       <div className="flex gap-2 md:col-span-2">
-                        <button
-                          onClick={() => updateSchoolInDb(school.id)}
-                          className="flex items-center gap-2 bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600"
-                        >
-                          <Save size={20} />
-                          Save
+                        <button onClick={() => updateSchoolInDb(school.id)}
+                          className="flex items-center gap-2 bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-all">
+                          <Save size={15} /> Save
                         </button>
-                        <button
-                          onClick={() => setEditingSchool(null)}
-                          className="flex items-center gap-2 bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600"
-                        >
-                          <X size={20} />
-                          Cancel
+                        <button onClick={() => setEditingSchool(null)}
+                          className="flex items-center gap-2 bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-xl text-sm font-semibold transition-all">
+                          <X size={15} /> Cancel
                         </button>
                       </div>
                     </div>
                   ) : (
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <h3 className="font-bold text-lg">{school.name}</h3>
-                        <p className="text-gray-600">City: {school.city}</p>
-                        <p className="text-gray-600">Devotee: {school.devotee}</p>
-                        <p className="text-gray-600">Languages: {school.languages.join(', ')}</p>
+                    <div className="flex justify-between items-start gap-4">
+                      <div className="min-w-0">
+                        <h3 className="font-semibold text-gray-900 truncate">{school.name}</h3>
+                        <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-1">
+                          <span className="text-xs text-gray-400">{school.city}</span>
+                          <span className="text-xs text-gray-400">by {school.devotee}</span>
+                        </div>
+                        <div className="flex flex-wrap gap-1 mt-2">
+                          {school.languages.map(lang => (
+                            <span key={lang} className="bg-orange-100 text-orange-700 text-xs px-2 py-0.5 rounded-lg font-medium">{lang}</span>
+                          ))}
+                        </div>
                       </div>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => setEditingSchool(school)}
-                          className="p-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
-                        >
-                          <Edit2 size={20} />
+                      <div className="flex gap-2 shrink-0">
+                        <button onClick={() => setEditingSchool(school)}
+                          className="p-2 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-xl transition-colors">
+                          <Edit2 size={16} />
                         </button>
-                        <button
-                          onClick={() => deleteSchoolFromDb(school.id)}
-                          className="p-2 bg-red-500 text-white rounded-lg hover:bg-red-600"
-                        >
-                          <Trash2 size={20} />
+                        <button onClick={() => deleteSchoolFromDb(school.id)}
+                          className="p-2 bg-red-50 text-red-500 hover:bg-red-100 rounded-xl transition-colors">
+                          <Trash2 size={16} />
                         </button>
                       </div>
                     </div>
@@ -920,135 +790,160 @@ function App() {
   // ── Student Registration Form ─────────────────────────────────
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-orange-50 to-yellow-50 flex items-center justify-center p-4">
-      <div className="absolute top-4 right-4">
-        <button
-          onClick={() => setShowLoginModal(true)}
-          className="flex items-center gap-2 bg-orange-500 text-white px-4 py-2 rounded-lg hover:bg-orange-600"
-        >
-          <User size={20} />
-          Admin Login
+    <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden"
+      style={{ background: 'linear-gradient(135deg, #1c0a00 0%, #7c2d12 35%, #991b1b 70%, #c2410c 100%)' }}>
+
+      {/* OM watermark */}
+      <div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none overflow-hidden">
+        <span style={{ fontSize: '60vw', opacity: 0.04, color: 'white', fontFamily: 'Georgia, serif', lineHeight: 1 }}>ॐ</span>
+      </div>
+
+      {/* Glow blobs */}
+      <div className="absolute top-0 right-0 w-[500px] h-[500px] rounded-full pointer-events-none blur-3xl opacity-25"
+        style={{ background: 'radial-gradient(circle, #f97316, transparent)', transform: 'translate(40%, -40%)' }} />
+      <div className="absolute bottom-0 left-0 w-[500px] h-[500px] rounded-full pointer-events-none blur-3xl opacity-20"
+        style={{ background: 'radial-gradient(circle, #ef4444, transparent)', transform: 'translate(-40%, 40%)' }} />
+
+      {/* Admin button */}
+      <div className="absolute top-5 right-5 z-20">
+        <button onClick={() => setShowLoginModal(true)}
+          className="flex items-center gap-2 bg-white/10 backdrop-blur-md text-white/90 border border-white/20 px-4 py-2 rounded-full hover:bg-white/20 transition-all text-sm font-medium">
+          <User size={15} />
+          Admin
         </button>
       </div>
 
       {/* Login Modal */}
       {showLoginModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-8 max-w-md w-full">
-            <h2 className="text-2xl font-bold mb-4">Admin Login</h2>
-            <button
-              onClick={handleGoogleLogin}
-              className="w-full bg-blue-500 text-white px-4 py-3 rounded-lg hover:bg-blue-600 mb-4"
-            >
-              Sign in with Google
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl card-enter">
+            <div className="text-center mb-6">
+              <div className="w-14 h-14 bg-orange-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                <User size={24} className="text-orange-600" />
+              </div>
+              <h2 className="text-2xl font-bold text-gray-900">Admin Portal</h2>
+              <p className="text-gray-400 text-sm mt-1">Sign in to manage the contest</p>
+            </div>
+            <button onClick={handleGoogleLogin}
+              className="w-full flex items-center justify-center gap-3 border-2 border-gray-200 hover:border-orange-300 hover:bg-orange-50 text-gray-700 px-4 py-3.5 rounded-2xl transition-all font-semibold mb-3">
+              <svg width="20" height="20" viewBox="0 0 24 24">
+                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
+                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
+              </svg>
+              Continue with Google
             </button>
-            <button
-              onClick={() => setShowLoginModal(false)}
-              className="w-full bg-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-400"
-            >
+            <button onClick={() => setShowLoginModal(false)}
+              className="w-full text-gray-400 hover:text-gray-600 py-2 text-sm transition-colors">
               Cancel
             </button>
           </div>
         </div>
       )}
 
-      {/* Student Form */}
-      <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md relative overflow-hidden">
-        <div className="relative z-10">
-          <div className="flex justify-center mb-6">
-            <div className="w-20 h-20 bg-orange-600 rounded-full flex items-center justify-center">
-              <span className="text-white font-bold text-2xl">JD</span>
+      {/* Registration Card */}
+      <div className="relative z-10 w-full max-w-md card-enter">
+        <div className="bg-white rounded-3xl overflow-hidden"
+          style={{ boxShadow: '0 32px 80px rgba(0,0,0,0.5)' }}>
+
+          {/* Card Header */}
+          <div className="relative px-8 pt-8 pb-10 text-center overflow-hidden"
+            style={{ background: 'linear-gradient(135deg, #ea580c 0%, #dc2626 100%)' }}>
+            <div className="absolute -top-10 -right-10 w-44 h-44 rounded-full bg-white/10 pointer-events-none" />
+            <div className="absolute -bottom-8 -left-8 w-36 h-36 rounded-full bg-black/10 pointer-events-none" />
+
+            <div className="relative z-10">
+              <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">
+                <span style={{ color: '#ea580c', fontSize: '1.9rem', fontFamily: 'Georgia, serif', lineHeight: 1 }}>ॐ</span>
+              </div>
+              <span className="inline-block bg-white/25 text-white/95 text-xs font-semibold px-3 py-1 rounded-full uppercase tracking-widest mb-3">
+                ISKCON Jivadaya
+              </span>
+              <h1 className="text-white text-2xl font-bold mb-1">ŚREṢṬHA Contest</h1>
+              <p className="text-orange-100 text-sm">Student Registration · ₹{PAYMENT_AMOUNT}</p>
             </div>
           </div>
 
-          <h1 className="text-3xl font-bold text-center text-blue-500 mb-6">
-            ŚREṢṬHA Contest
-          </h1>
+          {/* Form */}
+          <div className="px-8 py-8 space-y-5">
 
-          <div className="space-y-4">
-            <input
-              type="text"
-              name="name"
-              placeholder="Enter your name"
-              value={formData.name}
-              onChange={handleInputChange}
-              className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none"
-            />
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Full Name</label>
+              <input type="text" name="name" placeholder="Enter your full name" value={formData.name} onChange={handleInputChange}
+                className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-orange-400 focus:bg-white outline-none transition-all text-gray-800 placeholder-gray-400 font-medium" />
+            </div>
 
-            <select
-              name="school"
-              value={formData.school}
-              onChange={handleInputChange}
-              className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none"
-            >
-              <option value="">Select School</option>
-              {getFilteredSchools().map(school => (
-                <option key={school.id} value={school.name}>{school.name}</option>
-              ))}
-              <option value="Other">Other</option>
-            </select>
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">School</label>
+              <select name="school" value={formData.school} onChange={handleInputChange}
+                className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-orange-400 focus:bg-white outline-none transition-all text-gray-800 cursor-pointer">
+                <option value="">Select your school</option>
+                {getFilteredSchools().map(school => (
+                  <option key={school.id} value={school.name}>{school.name}</option>
+                ))}
+                <option value="Other">Other</option>
+              </select>
+            </div>
 
             {formData.school === 'Other' && (
               <>
-                <input
-                  type="text"
-                  placeholder="Enter your school name (optional)"
-                  value={otherSchoolName}
+                <input type="text" placeholder="Enter your school name (optional)" value={otherSchoolName}
                   onChange={(e) => setOtherSchoolName(e.target.value)}
-                  className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none"
-                />
-                <p className="text-red-600 font-bold text-center text-sm">
-                  Please collect your booklet from ISKCON ABIDS temple only
-                </p>
+                  className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-orange-400 focus:bg-white outline-none transition-all text-gray-800 placeholder-gray-400" />
+                <div className="flex items-start gap-3 bg-red-50 border-2 border-red-200 rounded-xl p-4">
+                  <span className="text-xl shrink-0 mt-0.5">⚠️</span>
+                  <p className="text-red-700 font-bold text-sm leading-snug">
+                    Please collect your booklet from ISKCON ABIDS temple only
+                  </p>
+                </div>
               </>
             )}
 
-            <select
-              name="class"
-              value={formData.class}
-              onChange={handleInputChange}
-              className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none"
-            >
-              <option value="">Select Class</option>
-              {classes.map(cls => (
-                <option key={cls} value={cls}>{cls}</option>
-              ))}
-            </select>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Class</label>
+                <select name="class" value={formData.class} onChange={handleInputChange}
+                  className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-orange-400 focus:bg-white outline-none transition-all text-gray-800 cursor-pointer">
+                  <option value="">Select</option>
+                  {classes.map(cls => <option key={cls} value={cls}>{cls}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Mobile</label>
+                <input type="tel" name="mobile" placeholder="Mobile number" value={formData.mobile} onChange={handleInputChange}
+                  className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-orange-400 focus:bg-white outline-none transition-all text-gray-800 placeholder-gray-400 font-medium" />
+              </div>
+            </div>
 
-            <input
-              type="tel"
-              name="mobile"
-              placeholder="Mobile Number"
-              value={formData.mobile}
-              onChange={handleInputChange}
-              className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none"
-            />
-
-            <select
-              name="language"
-              value={formData.language}
-              onChange={handleInputChange}
-              disabled={!formData.school}
-              className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none disabled:bg-gray-100"
-            >
-              <option value="">Select your preferred language</option>
-              {getAvailableLanguages().map(lang => (
-                <option key={lang} value={lang}>{lang}</option>
-              ))}
-            </select>
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Preferred Language</label>
+              <select name="language" value={formData.language} onChange={handleInputChange} disabled={!formData.school}
+                className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-orange-400 focus:bg-white outline-none transition-all text-gray-800 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
+                <option value="">Select language</option>
+                {getAvailableLanguages().map(lang => <option key={lang} value={lang}>{lang}</option>)}
+              </select>
+            </div>
 
             {getReferredBy() && (
-              <p className="text-center text-blue-600">
-                Referred by: {getReferredBy()}
-              </p>
+              <div className="flex items-center gap-3 bg-orange-50 border-2 border-orange-100 rounded-xl px-4 py-3">
+                <div className="w-8 h-8 bg-orange-100 rounded-lg flex items-center justify-center shrink-0">
+                  <span className="text-orange-500 text-sm font-bold">✦</span>
+                </div>
+                <div>
+                  <p className="text-orange-400 text-xs font-semibold uppercase tracking-wider">Referred by</p>
+                  <p className="text-orange-800 font-bold text-sm">{getReferredBy()}</p>
+                </div>
+              </div>
             )}
 
-            <button
-              onClick={handlePayment}
-              className="w-full bg-blue-500 text-white py-3 rounded-lg font-semibold hover:bg-blue-600 transition-colors"
-            >
-              Register & Pay ₹{PAYMENT_AMOUNT}
+            <button onClick={handlePayment}
+              className="w-full py-4 rounded-2xl font-bold text-white text-lg transition-all active:scale-[0.98] mt-2"
+              style={{ background: 'linear-gradient(135deg, #ea580c, #dc2626)', boxShadow: '0 8px 24px rgba(234,88,12,0.4)' }}>
+              Register &amp; Pay ₹{PAYMENT_AMOUNT} →
             </button>
+
+            <p className="text-center text-xs text-gray-400 pb-1">🔒 Secured by Razorpay · All payments are final</p>
           </div>
         </div>
       </div>
