@@ -1,8 +1,6 @@
 import crypto from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 
-const BUTTON_ID = 'pl_T1R8ZMGQxzl7p7';
-
 export const config = { api: { bodyParser: false } };
 
 function rawBody(req) {
@@ -19,51 +17,13 @@ function normalizeMobile(contact) {
   return contact.replace(/\D/g, '').slice(-10);
 }
 
-async function updatePayment(supabase, mobile, paymentId, status) {
-  const { data: rows, error: fetchError } = await supabase
-    .from('payments')
-    .select('id, mobile')
-    .eq('status', 'registered')
-    .order('timestamp', { ascending: false })
-    .limit(50);
-
-  if (fetchError) {
-    console.error('Supabase fetch error:', fetchError.message);
-    return false;
-  }
-
-  const match = rows?.find(r => normalizeMobile(r.mobile) === mobile);
-  if (!match) {
-    console.log('No registered payment found for mobile:', mobile);
-    return false;
-  }
-
-  const updates = status === 'captured'
-    ? { payment_id: paymentId, status: 'captured' }
-    : { status };
-
-  const { error: updateError } = await supabase
-    .from('payments')
-    .update(updates)
-    .eq('id', match.id);
-
-  if (updateError) {
-    console.error('Supabase update error:', updateError.message);
-    return false;
-  }
-
-  console.log(`Updated payment ${match.id} → status=${status}, payment_id=${paymentId}`);
-  return true;
-}
-
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  // Check env vars are present
   if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-    console.error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY env vars');
+    console.error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
     return res.status(500).json({ error: 'Server misconfigured' });
   }
 
@@ -74,7 +34,6 @@ export default async function handler(req, res) {
 
   const raw = await rawBody(req);
 
-  // Verify signature if webhook secret is configured
   const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
   if (secret) {
     const signature = req.headers['x-razorpay-signature'];
@@ -94,30 +53,52 @@ export default async function handler(req, res) {
 
   const eventType = event.event;
   const payment = event.payload?.payment?.entity;
-  const paymentLink = event.payload?.payment_link?.entity;
 
-  console.log('Webhook received:', eventType, '| payment_id:', payment?.id);
+  console.log('Webhook received:', eventType, '| payment_id:', payment?.id, '| amount:', payment?.amount);
 
-  if (!payment) {
-    return res.status(200).json({ ok: true });
-  }
+  if (!payment) return res.status(200).json({ ok: true });
 
-  const mobile = normalizeMobile(payment.contact);
-  console.log('Normalized mobile:', mobile, '| amount (paise):', payment.amount);
-
-  // Reject if amount doesn't match expected ₹30 (3000 paise)
   if (payment.amount !== 3000) {
-    console.error('Amount mismatch:', payment.amount, '— expected 3000');
+    console.error('Amount mismatch:', payment.amount);
     return res.status(200).json({ skipped: true, reason: 'amount_mismatch' });
   }
 
-  if (eventType === 'payment.captured') {
-    await updatePayment(supabase, mobile, payment.id, 'captured');
-  } else if (eventType === 'payment.authorized') {
-    await updatePayment(supabase, mobile, payment.id, 'authorized');
-  } else if (eventType === 'payment.failed') {
-    await updatePayment(supabase, mobile, null, 'failed');
+  const mobile = normalizeMobile(payment.contact);
+  const status = (eventType === 'payment.captured' || eventType === 'payment_link.paid')
+    ? 'captured'
+    : eventType === 'payment.failed'
+    ? 'failed'
+    : null;
+
+  if (!status) return res.status(200).json({ ok: true });
+
+  // Find the most recent pending row for this mobile and update it
+  const { data: rows, error: fetchError } = await supabase
+    .from('payments')
+    .select('id, mobile')
+    .eq('status', 'pending')
+    .order('timestamp', { ascending: false })
+    .limit(50);
+
+  if (fetchError) {
+    console.error('Supabase fetch error:', fetchError.message);
+    return res.status(200).json({ ok: true });
   }
+
+  const match = rows?.find(r => normalizeMobile(r.mobile) === mobile);
+
+  if (!match) {
+    console.log('No pending payment found for mobile:', mobile);
+    return res.status(200).json({ ok: true });
+  }
+
+  const { error: updateError } = await supabase
+    .from('payments')
+    .update({ payment_id: payment.id, status })
+    .eq('id', match.id);
+
+  if (updateError) console.error('Supabase update error:', updateError.message);
+  else console.log('Updated payment', match.id, '→', status, payment.id);
 
   return res.status(200).json({ ok: true });
 }
