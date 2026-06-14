@@ -45,6 +45,7 @@ function App() {
 
   // Payment button — loaded silently in background so it's ready instantly
   const razorpayFormRef = useRef(null);
+  const [rzpReady, setRzpReady] = useState(false);
 
   useEffect(() => {
     if (!razorpayFormRef.current || razorpayFormRef.current.children.length > 0) return;
@@ -52,6 +53,7 @@ function App() {
     script.src = 'https://checkout.razorpay.com/v1/payment-button.js';
     script.setAttribute('data-payment_button_id', RZP_BUTTON_ID);
     script.async = true;
+    script.onload = () => setTimeout(() => setRzpReady(true), 300);
     razorpayFormRef.current.appendChild(script);
   }, []);
 
@@ -1045,9 +1047,10 @@ function App() {
             </div>
 
             <button onClick={handleRegisterAndPay}
-              className="w-full py-4 rounded-2xl font-bold text-white text-lg transition-all active:scale-[0.98] mt-2"
+              disabled={!rzpReady}
+              className="w-full py-4 rounded-2xl font-bold text-white text-lg transition-all active:scale-[0.98] mt-2 disabled:opacity-60 disabled:cursor-wait"
               style={{ background: 'linear-gradient(135deg, #ea580c, #dc2626)', boxShadow: '0 8px 24px rgba(234,88,12,0.4)' }}>
-              Register &amp; Pay ₹{PAYMENT_AMOUNT} →
+              {rzpReady ? <>Register &amp; Pay ₹{PAYMENT_AMOUNT} →</> : 'Loading payment...'}
             </button>
 
             <p className="text-center text-xs text-gray-400 pb-1">🔒 Secured by Razorpay · All payments are final</p>
