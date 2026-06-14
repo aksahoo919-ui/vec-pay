@@ -96,18 +96,7 @@ export default async function handler(req, res) {
   const payment = event.payload?.payment?.entity;
   const paymentLink = event.payload?.payment_link?.entity;
 
-  console.log('Webhook received:', eventType, '| payment_link_id:', paymentLink?.id, '| payment_id:', payment?.id);
-
-  // For payment_link events: filter strictly by our button ID
-  // For payment.captured: also check invoice_id which Razorpay sets to the payment link ID
-  const isOurButton =
-    paymentLink?.id === BUTTON_ID ||
-    payment?.invoice_id === BUTTON_ID;
-
-  if (!isOurButton && (eventType === 'payment_link.paid' || eventType === 'payment.captured')) {
-    console.log('Skipping: not from our button');
-    return res.status(200).json({ skipped: true });
-  }
+  console.log('Webhook received:', eventType, '| payment_id:', payment?.id);
 
   if (!payment) {
     return res.status(200).json({ ok: true });
@@ -116,8 +105,10 @@ export default async function handler(req, res) {
   const mobile = normalizeMobile(payment.contact);
   console.log('Normalized mobile:', mobile);
 
-  if (eventType === 'payment_link.paid' || eventType === 'payment.captured') {
+  if (eventType === 'payment.captured') {
     await updatePayment(supabase, mobile, payment.id, 'captured');
+  } else if (eventType === 'payment.authorized') {
+    await updatePayment(supabase, mobile, payment.id, 'authorized');
   } else if (eventType === 'payment.failed') {
     await updatePayment(supabase, mobile, null, 'failed');
   }
