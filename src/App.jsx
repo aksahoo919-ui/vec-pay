@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { User, LogOut, Plus, Edit2, Trash2, Save, X, Download } from 'lucide-react';
 import { supabase } from './config/supabase';
 
-const RAZORPAY_KEY_ID = import.meta.env.VITE_RAZORPAY_KEY_ID;
 const PAYMENT_AMOUNT = 30;
+const RZP_BUTTON_ID = 'pl_T1R8ZMGQxzl7p7';
 
 function App() {
   const [isAdmin, setIsAdmin] = useState(false);
@@ -42,6 +42,20 @@ function App() {
   // Admin management
   const [admins, setAdmins] = useState([]);
   const [newAdminEmail, setNewAdminEmail] = useState('');
+
+  // Payment button
+  const [registrationSaved, setRegistrationSaved] = useState(false);
+  const razorpayFormRef = useRef(null);
+
+  useEffect(() => {
+    if (!registrationSaved || !razorpayFormRef.current) return;
+    if (razorpayFormRef.current.children.length > 0) return;
+    const script = document.createElement('script');
+    script.src = 'https://checkout.razorpay.com/v1/payment-button.js';
+    script.setAttribute('data-payment_button_id', RZP_BUTTON_ID);
+    script.async = true;
+    razorpayFormRef.current.appendChild(script);
+  }, [registrationSaved]);
 
   useEffect(() => {
     loadCities();
@@ -324,66 +338,41 @@ function App() {
     }
   };
 
-  // ── Razorpay ──────────────────────────────────────────────────
+  // ── Registration + Payment ────────────────────────────────────
 
-  const loadRazorpayScript = () => new Promise((resolve) => {
-    const script = document.createElement('script');
-    script.src = 'https://checkout.razorpay.com/v1/checkout.js';
-    script.onload = () => resolve(true);
-    script.onerror = () => resolve(false);
-    document.body.appendChild(script);
-  });
-
-  const handlePayment = async () => {
+  const handleRegisterAndPay = async () => {
     if (!formData.name || !formData.school || !formData.class || !formData.mobile || !formData.language) {
       alert('Please fill all required fields');
       return;
     }
+    if (formData.school === 'Other' && !otherSchoolName.trim()) {
+      alert('Please enter your school name');
+      return;
+    }
 
-    const res = await loadRazorpayScript();
-    if (!res) { alert('Razorpay SDK failed to load. Please check your internet connection.'); return; }
+    const schoolName = formData.school === 'Other' ? otherSchoolName.trim() : formData.school;
+    const cityFromSchool = formData.school === 'Other'
+      ? ''
+      : (schools.find(s => s.name === formData.school)?.city || '');
 
-    const options = {
-      key: RAZORPAY_KEY_ID,
-      amount: PAYMENT_AMOUNT * 100,
-      currency: 'INR',
-      name: 'JIVADAYA - ŚREṢṬHA Contest',
-      description: 'VEC Kit Payment',
-      handler: async function (response) {
-        const schoolName = formData.school === 'Other'
-          ? (otherSchoolName.trim() || 'Other')
-          : formData.school;
-        const cityFromSchool = formData.school === 'Other'
-          ? ''
-          : (schools.find(s => s.name === formData.school)?.city || '');
+    const saved = await savePaymentToDb({
+      name: formData.name,
+      city: cityFromSchool,
+      school: schoolName,
+      class: formData.class,
+      mobile: formData.mobile,
+      language: formData.language,
+      referredBy: getReferredBy(),
+      amount: PAYMENT_AMOUNT,
+      paymentId: 'pending',
+      status: 'registered'
+    });
 
-        const paymentData = {
-          name: formData.name,
-          city: cityFromSchool,
-          school: schoolName,
-          class: formData.class,
-          mobile: formData.mobile,
-          language: formData.language,
-          referredBy: getReferredBy(),
-          amount: PAYMENT_AMOUNT,
-          paymentId: response.razorpay_payment_id,
-          status: 'success'
-        };
-
-        const saved = await savePaymentToDb(paymentData);
-
-        if (saved) {
-          alert('Payment Successful! Registration completed.');
-          setFormData({ name: '', school: '', class: '', mobile: '', language: '' });
-          setOtherSchoolName('');
-        }
-      },
-      prefill: { name: formData.name, contact: formData.mobile },
-      theme: { color: '#ea580c' },
-      modal: { ondismiss: function () { alert('Payment cancelled'); } }
-    };
-
-    new window.Razorpay(options).open();
+    if (saved) {
+      setRegistrationSaved(true);
+    } else {
+      alert('Failed to save registration. Please try again.');
+    }
   };
 
   // ── Auth ──────────────────────────────────────────────────────
@@ -1045,11 +1034,23 @@ function App() {
               </div>
             )}
 
-            <button onClick={handlePayment}
-              className="w-full py-4 rounded-2xl font-bold text-white text-lg transition-all active:scale-[0.98] mt-2"
-              style={{ background: 'linear-gradient(135deg, #ea580c, #dc2626)', boxShadow: '0 8px 24px rgba(234,88,12,0.4)' }}>
-              Register &amp; Pay ₹{PAYMENT_AMOUNT} →
-            </button>
+            {!registrationSaved ? (
+              <button onClick={handleRegisterAndPay}
+                className="w-full py-4 rounded-2xl font-bold text-white text-lg transition-all active:scale-[0.98] mt-2"
+                style={{ background: 'linear-gradient(135deg, #ea580c, #dc2626)', boxShadow: '0 8px 24px rgba(234,88,12,0.4)' }}>
+                Register &amp; Pay ₹{PAYMENT_AMOUNT} →
+              </button>
+            ) : (
+              <div className="mt-2 space-y-3">
+                <div className="bg-green-50 border border-green-200 rounded-xl p-3 text-center">
+                  <p className="text-green-700 font-semibold text-sm">✓ Registration saved!</p>
+                  <p className="text-green-600 text-xs mt-0.5">Click the button below to complete your payment</p>
+                </div>
+                <div className="flex justify-center py-1">
+                  <form ref={razorpayFormRef}></form>
+                </div>
+              </div>
+            )}
 
             <p className="text-center text-xs text-gray-400 pb-1">🔒 Secured by Razorpay · All payments are final</p>
           </div>
