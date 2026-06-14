@@ -103,7 +103,13 @@ export default async function handler(req, res) {
   }
 
   const mobile = normalizeMobile(payment.contact);
-  console.log('Normalized mobile:', mobile);
+  console.log('Normalized mobile:', mobile, '| amount (paise):', payment.amount);
+
+  // Reject if amount doesn't match expected ₹30 (3000 paise)
+  if (payment.amount !== 3000) {
+    console.error('Amount mismatch:', payment.amount, '— expected 3000');
+    return res.status(200).json({ skipped: true, reason: 'amount_mismatch' });
+  }
 
   if (eventType === 'payment.captured') {
     await updatePayment(supabase, mobile, payment.id, 'captured');
