@@ -43,19 +43,17 @@ function App() {
   const [admins, setAdmins] = useState([]);
   const [newAdminEmail, setNewAdminEmail] = useState('');
 
-  // Payment button
-  const [registrationSaved, setRegistrationSaved] = useState(false);
+  // Payment button — loaded silently in background so it's ready instantly
   const razorpayFormRef = useRef(null);
 
   useEffect(() => {
-    if (!registrationSaved || !razorpayFormRef.current) return;
-    if (razorpayFormRef.current.children.length > 0) return;
+    if (!razorpayFormRef.current || razorpayFormRef.current.children.length > 0) return;
     const script = document.createElement('script');
     script.src = 'https://checkout.razorpay.com/v1/payment-button.js';
     script.setAttribute('data-payment_button_id', RZP_BUTTON_ID);
     script.async = true;
     razorpayFormRef.current.appendChild(script);
-  }, [registrationSaved]);
+  }, []);
 
   useEffect(() => {
     loadCities();
@@ -368,10 +366,17 @@ function App() {
       status: 'registered'
     });
 
-    if (saved) {
-      setRegistrationSaved(true);
-    } else {
+    if (!saved) {
       alert('Failed to save registration. Please try again.');
+      return;
+    }
+
+    // Trigger the hidden Razorpay button
+    const rzpBtn = razorpayFormRef.current?.querySelector('button');
+    if (rzpBtn) {
+      rzpBtn.click();
+    } else {
+      alert('Payment button not ready yet. Please try again in a moment.');
     }
   };
 
@@ -1034,23 +1039,16 @@ function App() {
               </div>
             )}
 
-            {!registrationSaved ? (
-              <button onClick={handleRegisterAndPay}
-                className="w-full py-4 rounded-2xl font-bold text-white text-lg transition-all active:scale-[0.98] mt-2"
-                style={{ background: 'linear-gradient(135deg, #ea580c, #dc2626)', boxShadow: '0 8px 24px rgba(234,88,12,0.4)' }}>
-                Register &amp; Pay ₹{PAYMENT_AMOUNT} →
-              </button>
-            ) : (
-              <div className="mt-2 space-y-3">
-                <div className="bg-green-50 border border-green-200 rounded-xl p-3 text-center">
-                  <p className="text-green-700 font-semibold text-sm">✓ Registration saved!</p>
-                  <p className="text-green-600 text-xs mt-0.5">Click the button below to complete your payment</p>
-                </div>
-                <div className="flex justify-center py-1">
-                  <form ref={razorpayFormRef}></form>
-                </div>
-              </div>
-            )}
+            {/* Hidden Razorpay button — loaded in background, triggered programmatically */}
+            <div style={{ display: 'none' }}>
+              <form ref={razorpayFormRef}></form>
+            </div>
+
+            <button onClick={handleRegisterAndPay}
+              className="w-full py-4 rounded-2xl font-bold text-white text-lg transition-all active:scale-[0.98] mt-2"
+              style={{ background: 'linear-gradient(135deg, #ea580c, #dc2626)', boxShadow: '0 8px 24px rgba(234,88,12,0.4)' }}>
+              Register &amp; Pay ₹{PAYMENT_AMOUNT} →
+            </button>
 
             <p className="text-center text-xs text-gray-400 pb-1">🔒 Secured by Razorpay · All payments are final</p>
           </div>
