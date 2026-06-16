@@ -48,6 +48,7 @@ function App() {
 
   const [selectedCityFilter, setSelectedCityFilter] = useState('');
   const [selectedSchoolFilter, setSelectedSchoolFilter] = useState('');
+  const [selectedBookFilter, setSelectedBookFilter] = useState('');
   const [capturedSearch, setCapturedSearch] = useState('');
 
   // Admin management
@@ -101,6 +102,18 @@ function App() {
 
     return () => subscription.unsubscribe();
   }, []);
+
+  // Live updates: refresh payments whenever the table changes (admin only)
+  useEffect(() => {
+    if (!isAdmin) return;
+    const channel = supabase
+      .channel('payments-live')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'payments' }, () => {
+        loadPayments();
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [isAdmin]);
 
   // ── Data Loading ──────────────────────────────────────────────
 
@@ -563,7 +576,7 @@ function App() {
   const getFilteredPayments = () => {
     let filtered = [...payments];
     if (selectedCityFilter) filtered = filtered.filter(p => p.city === selectedCityFilter);
-    if (selectedSchoolFilter) filtered = filtered.filter(p => p.school === selectedSchoolFilter);
+    if (selectedSchoolFilter) filtered = filtered.filter(p => p.school === selectedSchoolFilter || p.college === selectedSchoolFilter);
     return filtered;
   };
 
@@ -576,6 +589,8 @@ function App() {
         (p.mobile || '').toLowerCase().includes(term)
       );
     }
+    if (selectedBookFilter === 'given') list = list.filter(p => p.book_given);
+    if (selectedBookFilter === 'notgiven') list = list.filter(p => !p.book_given);
     return list;
   };
   const getNonCapturedPayments = () => getFilteredPayments().filter(p => p.status !== 'captured');
@@ -602,7 +617,7 @@ function App() {
 
   const getUniqueSchoolsFromPayments = () => {
     const base = selectedCityFilter ? payments.filter(p => p.city === selectedCityFilter) : payments;
-    return [...new Set(base.map(p => p.school).filter(Boolean))].sort();
+    return [...new Set([...base.map(p => p.school), ...base.map(p => p.college)].filter(Boolean))].sort();
   };
 
   const exportToCSV = () => {
@@ -685,7 +700,7 @@ function App() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {[
               { label: 'Total Registrations', value: payments.length, sub: 'All time', color: 'text-gray-900' },
-              { label: 'Total Revenue', value: `₹${payments.reduce((s, p) => s + (p.amount || 0), 0).toLocaleString()}`, sub: 'Collected via Razorpay', color: 'text-green-600' },
+              { label: 'Total Revenue', value: `₹${payments.filter(p => p.status === 'captured').reduce((s, p) => s + (p.amount || 0), 0).toLocaleString()}`, sub: 'Captured payments only', color: 'text-green-600' },
               { label: 'Active Schools', value: schools.length, sub: 'Across all cities', color: 'text-orange-600' },
             ].map(stat => (
               <div key={stat.label} className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
@@ -723,15 +738,24 @@ function App() {
                   </select>
                 </div>
                 <div className="flex-1 min-w-[180px]">
-                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Filter by School</label>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Filter by School / College</label>
                   <select value={selectedSchoolFilter} onChange={(e) => setSelectedSchoolFilter(e.target.value)}
                     className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white focus:border-orange-400 outline-none">
-                    <option value="">All Schools</option>
+                    <option value="">All Schools / Colleges</option>
                     {getUniqueSchoolsFromPayments().map(school => <option key={school} value={school}>{school}</option>)}
                   </select>
                 </div>
-                {(selectedCityFilter || selectedSchoolFilter) && (
-                  <button onClick={() => { setSelectedCityFilter(''); setSelectedSchoolFilter(''); }}
+                <div className="flex-1 min-w-[160px]">
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Filter by Book (captured)</label>
+                  <select value={selectedBookFilter} onChange={(e) => setSelectedBookFilter(e.target.value)}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white focus:border-orange-400 outline-none">
+                    <option value="">All</option>
+                    <option value="given">Book Given</option>
+                    <option value="notgiven">Book Not Given</option>
+                  </select>
+                </div>
+                {(selectedCityFilter || selectedSchoolFilter || selectedBookFilter) && (
+                  <button onClick={() => { setSelectedCityFilter(''); setSelectedSchoolFilter(''); setSelectedBookFilter(''); }}
                     className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 bg-white border border-gray-200 px-3 py-2 rounded-xl transition-all">
                     <X size={14} /> Clear
                   </button>
@@ -792,12 +816,14 @@ function App() {
                         <td className="px-6 py-3 font-mono text-xs text-gray-400">{payment.payment_id}</td>
                         <td className="px-6 py-3 text-gray-500 text-xs">{new Date(payment.timestamp).toLocaleDateString()}</td>
                         <td className="px-6 py-3">
-                          <button onClick={() => updateBookGiven(payment, !payment.book_given)}
-                            className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${payment.book_given
-                              ? 'bg-green-100 text-green-700 hover:bg-green-200'
-                              : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
-                            {payment.book_given ? '✓ Given' : 'Not Given'}
-                          </button>
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" checked={!!payment.book_given}
+                              onChange={(e) => updateBookGiven(payment, e.target.checked)}
+                              className="w-4 h-4 accent-green-600 cursor-pointer" />
+                            <span className={`text-xs font-semibold ${payment.book_given ? 'text-green-700' : 'text-gray-400'}`}>
+                              {payment.book_given ? 'Given' : 'Not given'}
+                            </span>
+                          </label>
                         </td>
                       </tr>
                     ))

@@ -48,3 +48,17 @@ ALTER TABLE payments ADD COLUMN IF NOT EXISTS book_given     BOOLEAN DEFAULT fal
 
 DROP POLICY IF EXISTS "Admins can update payments" ON payments;
 CREATE POLICY "Admins can update payments" ON payments FOR UPDATE TO authenticated USING (is_admin());
+
+-- ============================================================
+-- 4. ENABLE REALTIME ON payments (for the live admin table)
+-- ============================================================
+-- Adds the payments table to the realtime publication so the admin
+-- dashboard updates automatically when new payments arrive or the
+-- book-given checkbox changes. Wrapped to ignore "already added".
+
+DO $$
+BEGIN
+  ALTER PUBLICATION supabase_realtime ADD TABLE payments;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
