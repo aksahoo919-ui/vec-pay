@@ -1,8 +1,10 @@
 -- Run this in the Supabase SQL Editor to add support for:
---   - Current Status (school / college / working)
+--   - Current Status (school / college / working / other)
 --   - Admin-managed colleges
 --   - Book given/not given tracking
 --   - Admin ability to update payment rows
+--
+-- This script is safe to run multiple times (idempotent).
 
 -- ============================================================
 -- 1. COLLEGES TABLE (admin-managed, mirrors schools)
@@ -16,6 +18,11 @@ CREATE TABLE IF NOT EXISTS colleges (
 );
 
 ALTER TABLE colleges ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Anyone can read colleges"   ON colleges;
+DROP POLICY IF EXISTS "Admins can insert colleges" ON colleges;
+DROP POLICY IF EXISTS "Admins can update colleges" ON colleges;
+DROP POLICY IF EXISTS "Admins can delete colleges" ON colleges;
 
 CREATE POLICY "Anyone can read colleges"   ON colleges FOR SELECT USING (true);
 CREATE POLICY "Admins can insert colleges" ON colleges FOR INSERT TO authenticated WITH CHECK (is_admin());
@@ -39,4 +46,5 @@ ALTER TABLE payments ADD COLUMN IF NOT EXISTS book_given     BOOLEAN DEFAULT fal
 -- 3. ALLOW ADMINS TO UPDATE PAYMENTS (for the book given/not given toggle)
 -- ============================================================
 
+DROP POLICY IF EXISTS "Admins can update payments" ON payments;
 CREATE POLICY "Admins can update payments" ON payments FOR UPDATE TO authenticated USING (is_admin());
