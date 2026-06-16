@@ -13,22 +13,32 @@ function App() {
 
   const [formData, setFormData] = useState({
     name: '',
+    currentStatus: '',   // 'school' | 'college' | 'working'
     school: '',
     class: '',
+    college: '',
+    branch: '',
+    companyName: '',
     mobile: '',
     language: ''
   });
   const [otherSchoolName, setOtherSchoolName] = useState('');
+  const [otherCollegeName, setOtherCollegeName] = useState('');
 
   // cities is {id, name}[]
   const [cities, setCities] = useState([]);
   const [schools, setSchools] = useState([]);
+  const [colleges, setColleges] = useState([]);
   const [classes] = useState(['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th', '10th', '11th', '12th']);
   const [payments, setPayments] = useState([]);
 
   const [editingSchool, setEditingSchool] = useState(null);
   const [showAddSchool, setShowAddSchool] = useState(false);
-  const [newSchool, setNewSchool] = useState({ name: '', city: '', devotee: '', languages: [] });
+  const [newSchool, setNewSchool] = useState({ name: '', city: '', devotee: '' });
+
+  const [editingCollege, setEditingCollege] = useState(null);
+  const [showAddCollege, setShowAddCollege] = useState(false);
+  const [newCollege, setNewCollege] = useState({ name: '', city: '', devotee: '' });
 
   // editingCity is {id, name} | null
   const [showAddCity, setShowAddCity] = useState(false);
@@ -38,6 +48,7 @@ function App() {
 
   const [selectedCityFilter, setSelectedCityFilter] = useState('');
   const [selectedSchoolFilter, setSelectedSchoolFilter] = useState('');
+  const [capturedSearch, setCapturedSearch] = useState('');
 
   // Admin management
   const [admins, setAdmins] = useState([]);
@@ -60,6 +71,7 @@ function App() {
   useEffect(() => {
     loadCities();
     loadSchools();
+    loadColleges();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       const user = session?.user;
@@ -118,6 +130,16 @@ function App() {
       }]);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadColleges = async () => {
+    try {
+      const { data, error } = await supabase.from('colleges').select('*').order('name');
+      if (error) throw error;
+      setColleges(data || []);
+    } catch (error) {
+      console.error('Error loading colleges:', error);
     }
   };
 
@@ -181,7 +203,7 @@ function App() {
   // ── School CRUD ───────────────────────────────────────────────
 
   const addSchoolToDb = async () => {
-    if (!newSchool.name || !newSchool.city || !newSchool.devotee || newSchool.languages.length === 0) {
+    if (!newSchool.name || !newSchool.city || !newSchool.devotee) {
       alert('Please fill all fields');
       return;
     }
@@ -193,7 +215,7 @@ function App() {
           name: newSchool.name.trim(),
           city: newSchool.city.trim(),
           devotee: newSchool.devotee.trim(),
-          languages: newSchool.languages
+          languages: ['English']
         })
         .select()
         .single();
@@ -201,7 +223,7 @@ function App() {
       if (error) throw error;
 
       setSchools([...schools, data]);
-      setNewSchool({ name: '', city: '', devotee: '', languages: [] });
+      setNewSchool({ name: '', city: '', devotee: '' });
       setShowAddSchool(false);
       alert('School added successfully!');
     } catch (error) {
@@ -217,8 +239,7 @@ function App() {
         .update({
           name: editingSchool.name,
           city: editingSchool.city,
-          devotee: editingSchool.devotee,
-          languages: editingSchool.languages
+          devotee: editingSchool.devotee
         })
         .eq('id', id);
 
@@ -247,21 +268,104 @@ function App() {
     }
   };
 
+  // ── College CRUD ──────────────────────────────────────────────
+
+  const addCollegeToDb = async () => {
+    if (!newCollege.name || !newCollege.city || !newCollege.devotee) {
+      alert('Please fill all fields');
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('colleges')
+        .insert({
+          name: newCollege.name.trim(),
+          city: newCollege.city.trim(),
+          devotee: newCollege.devotee.trim()
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      setColleges([...colleges, data]);
+      setNewCollege({ name: '', city: '', devotee: '' });
+      setShowAddCollege(false);
+      alert('College added successfully!');
+    } catch (error) {
+      console.error('Error adding college:', error);
+      alert(`Error adding college: ${error.message}`);
+    }
+  };
+
+  const updateCollegeInDb = async (id) => {
+    try {
+      const { error } = await supabase
+        .from('colleges')
+        .update({
+          name: editingCollege.name,
+          city: editingCollege.city,
+          devotee: editingCollege.devotee
+        })
+        .eq('id', id);
+
+      if (error) throw error;
+
+      setColleges(colleges.map(c => c.id === id ? editingCollege : c));
+      setEditingCollege(null);
+      alert('College updated successfully!');
+    } catch (error) {
+      console.error('Error updating college:', error);
+      alert('Error updating college. Please try again.');
+    }
+  };
+
+  const deleteCollegeFromDb = async (id) => {
+    if (!confirm('Are you sure you want to delete this college?')) return;
+
+    try {
+      const { error } = await supabase.from('colleges').delete().eq('id', id);
+      if (error) throw error;
+      setColleges(colleges.filter(c => c.id !== id));
+      alert('College deleted successfully!');
+    } catch (error) {
+      console.error('Error deleting college:', error);
+      alert(`Error deleting college: ${error.message}`);
+    }
+  };
+
+  const updateBookGiven = async (payment, value) => {
+    try {
+      const { error } = await supabase.from('payments').update({ book_given: value }).eq('id', payment.id);
+      if (error) throw error;
+      setPayments(payments.map(p => p.id === payment.id ? { ...p, book_given: value } : p));
+    } catch (error) {
+      console.error('Error updating book status:', error);
+      alert(`Error updating book status: ${error.message}`);
+    }
+  };
+
   // ── Payment ───────────────────────────────────────────────────
 
   const savePaymentToDb = async (paymentData) => {
     try {
       const { error } = await supabase.from('payments').insert({
         name: paymentData.name,
+        current_status: paymentData.currentStatus,
         city: paymentData.city,
         school: paymentData.school,
         class: paymentData.class,
+        college: paymentData.college,
+        branch: paymentData.branch,
+        company_name: paymentData.companyName,
         mobile: paymentData.mobile,
         language: paymentData.language,
         referred_by: paymentData.referredBy,
         amount: paymentData.amount,
         payment_id: paymentData.paymentId,
         status: paymentData.status,
+        book_given: false,
         timestamp: new Date().toISOString()
       });
 
@@ -341,25 +445,41 @@ function App() {
   // ── Registration + Payment ────────────────────────────────────
 
   const handleSubmit = async () => {
-    if (!formData.name || !formData.school || !formData.class || !formData.mobile || !formData.language) {
+    if (!formData.name || !formData.currentStatus || !formData.mobile || !formData.language) {
       alert('Please fill all required fields');
       return;
     }
-    if (formData.school === 'Other' && !otherSchoolName.trim()) {
-      alert('Please enter your school name');
-      return;
-    }
 
-    const schoolName = formData.school === 'Other' ? otherSchoolName.trim() : formData.school;
-    const cityFromSchool = formData.school === 'Other'
-      ? ''
-      : (schools.find(s => s.name === formData.school)?.city || '');
+    let school = '', cls = '', college = '', branch = '', companyName = '', city = '';
+
+    if (formData.currentStatus === 'school') {
+      if (!formData.school) { alert('Please select your school'); return; }
+      if (formData.school === 'Other' && !otherSchoolName.trim()) { alert('Please enter your school name'); return; }
+      if (!formData.class) { alert('Please select your class'); return; }
+      school = formData.school === 'Other' ? otherSchoolName.trim() : formData.school;
+      cls = formData.class;
+      city = formData.school === 'Other' ? '' : (schools.find(s => s.name === formData.school)?.city || '');
+    } else if (formData.currentStatus === 'college') {
+      if (!formData.college) { alert('Please select your college'); return; }
+      if (formData.college === 'Other' && !otherCollegeName.trim()) { alert('Please enter your college name'); return; }
+      if (!formData.branch.trim()) { alert('Please enter your branch'); return; }
+      college = formData.college === 'Other' ? otherCollegeName.trim() : formData.college;
+      branch = formData.branch.trim();
+      city = formData.college === 'Other' ? '' : (colleges.find(c => c.name === formData.college)?.city || '');
+    } else if (formData.currentStatus === 'working') {
+      if (!formData.companyName.trim()) { alert('Please enter your company name'); return; }
+      companyName = formData.companyName.trim();
+    }
 
     const saved = await savePaymentToDb({
       name: formData.name,
-      city: cityFromSchool,
-      school: schoolName,
-      class: formData.class,
+      currentStatus: formData.currentStatus,
+      city,
+      school,
+      class: cls,
+      college,
+      branch,
+      companyName,
       mobile: formData.mobile,
       language: formData.language,
       referredBy: getReferredBy(),
@@ -406,41 +526,38 @@ function App() {
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
+
+    if (name === 'currentStatus') {
+      setOtherSchoolName('');
+      setOtherCollegeName('');
+      setFormData(prev => ({
+        ...prev,
+        currentStatus: value,
+        school: '', class: '', college: '', branch: '', companyName: '',
+        language: value === 'school' ? 'English' : ''
+      }));
+      return;
+    }
     if (name === 'school') setOtherSchoolName('');
-    setFormData(prev => ({
-      ...prev,
-      [name]: value,
-      ...(name === 'school' && { language: '' })
-    }));
+    if (name === 'college') setOtherCollegeName('');
+
+    setFormData(prev => ({ ...prev, [name]: value }));
   };
 
-  const getFilteredSchools = () => schools;
-
   const getAvailableLanguages = () => {
-    if (!formData.school) return [];
-    if (formData.school === 'Other') return ['English', 'Hindi', 'Marathi', 'Gujarati', 'Tamil', 'Telugu'];
-    const school = schools.find(s => s.name === formData.school);
-    return school ? school.languages : [];
+    if (formData.currentStatus === 'school') return ['English'];
+    if (['college', 'working', 'other'].includes(formData.currentStatus)) return ['English', 'Telugu'];
+    return [];
   };
 
   const getReferredBy = () => {
-    if (!formData.school || formData.school === 'Other') return '';
-    const school = schools.find(s => s.name === formData.school);
-    return school ? school.devotee : '';
-  };
-
-  const toggleLanguage = (lang, isNew = false) => {
-    if (isNew) {
-      setNewSchool(prev => ({
-        ...prev,
-        languages: prev.languages.includes(lang) ? prev.languages.filter(l => l !== lang) : [...prev.languages, lang]
-      }));
-    } else if (editingSchool) {
-      setEditingSchool(prev => ({
-        ...prev,
-        languages: prev.languages.includes(lang) ? prev.languages.filter(l => l !== lang) : [...prev.languages, lang]
-      }));
+    if (formData.currentStatus === 'school' && formData.school && formData.school !== 'Other') {
+      return schools.find(s => s.name === formData.school)?.devotee || '';
     }
+    if (formData.currentStatus === 'college' && formData.college && formData.college !== 'Other') {
+      return colleges.find(c => c.name === formData.college)?.devotee || '';
+    }
+    return '';
   };
 
   const getFilteredPayments = () => {
@@ -449,6 +566,36 @@ function App() {
     if (selectedSchoolFilter) filtered = filtered.filter(p => p.school === selectedSchoolFilter);
     return filtered;
   };
+
+  const getCapturedPayments = () => {
+    const term = capturedSearch.trim().toLowerCase();
+    let list = getFilteredPayments().filter(p => p.status === 'captured');
+    if (term) {
+      list = list.filter(p =>
+        (p.name || '').toLowerCase().includes(term) ||
+        (p.mobile || '').toLowerCase().includes(term)
+      );
+    }
+    return list;
+  };
+  const getNonCapturedPayments = () => getFilteredPayments().filter(p => p.status !== 'captured');
+
+  const institutionOf = (p) =>
+    p.current_status === 'college' ? p.college
+    : p.current_status === 'working' ? p.company_name
+    : p.current_status === 'other' ? '—'
+    : p.school;
+
+  const detailOf = (p) =>
+    p.current_status === 'college' ? p.branch
+    : (p.current_status === 'working' || p.current_status === 'other') ? '—'
+    : p.class;
+
+  const statusLabelOf = (p) =>
+    p.current_status === 'college' ? 'College'
+    : p.current_status === 'working' ? 'Working'
+    : p.current_status === 'school' ? 'School'
+    : p.current_status === 'other' ? 'Other' : '—';
 
   const getUniqueCitiesFromPayments = () =>
     [...new Set(payments.map(p => p.city).filter(Boolean))].sort();
@@ -462,11 +609,12 @@ function App() {
     const filteredPayments = getFilteredPayments();
     if (filteredPayments.length === 0) { alert('No payments to export with the current filters.'); return; }
 
-    const headers = ['Name', 'City', 'School', 'Class', 'Mobile', 'Language', 'Referred By', 'Amount', 'Payment ID', 'Date', 'Status'];
+    const headers = ['Name', 'Current Status', 'City', 'School', 'Class', 'College', 'Branch', 'Company', 'Mobile', 'Language', 'Referred By', 'Amount', 'Payment ID', 'Date', 'Status', 'Book Given'];
     const rows = filteredPayments.map(p => [
-      p.name, p.city, p.school, p.class, p.mobile, p.language,
-      p.referred_by || '', p.amount, p.payment_id,
-      new Date(p.timestamp).toLocaleString(), p.status
+      p.name, p.current_status || '', p.city, p.school, p.class,
+      p.college || '', p.branch || '', p.company_name || '',
+      p.mobile, p.language, p.referred_by || '', p.amount, p.payment_id,
+      new Date(p.timestamp).toLocaleString(), p.status, p.book_given ? 'Yes' : 'No'
     ]);
 
     const csvContent = [headers.join(','), ...rows.map(row => row.map(cell => `"${cell}"`).join(','))].join('\n');
@@ -591,39 +739,111 @@ function App() {
               </div>
             </div>
 
+            {/* Captured Payments */}
+            <div className="px-6 pt-5 pb-3 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-green-500" />
+                <h3 className="text-sm font-bold text-gray-700">Captured Payments</h3>
+                <span className="text-xs text-gray-400">({getCapturedPayments().length})</span>
+              </div>
+              <div className="relative min-w-[220px]">
+                <input type="text" placeholder="Search by name or phone…" value={capturedSearch}
+                  onChange={(e) => setCapturedSearch(e.target.value)}
+                  className="w-full border border-gray-200 rounded-xl pl-3 pr-8 py-2 text-sm bg-white focus:border-orange-400 outline-none" />
+                {capturedSearch && (
+                  <button onClick={() => setCapturedSearch('')}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+            </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider">
                     <th className="px-6 py-3 text-left font-semibold">Name</th>
-                    <th className="px-6 py-3 text-left font-semibold">School</th>
-                    <th className="px-6 py-3 text-left font-semibold">City</th>
-                    <th className="px-6 py-3 text-left font-semibold">Class</th>
+                    <th className="px-6 py-3 text-left font-semibold">Status</th>
+                    <th className="px-6 py-3 text-left font-semibold">Institution</th>
+                    <th className="px-6 py-3 text-left font-semibold">Class / Branch</th>
                     <th className="px-6 py-3 text-left font-semibold">Mobile</th>
                     <th className="px-6 py-3 text-left font-semibold">Amount</th>
                     <th className="px-6 py-3 text-left font-semibold">Payment ID</th>
                     <th className="px-6 py-3 text-left font-semibold">Date</th>
+                    <th className="px-6 py-3 text-left font-semibold">Book</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
-                  {getFilteredPayments().length === 0 ? (
+                  {getCapturedPayments().length === 0 ? (
                     <tr>
-                      <td colSpan="8" className="px-6 py-12 text-center text-gray-400">
-                        {payments.length === 0 ? 'No payments yet' : 'No payments match the selected filters'}
-                      </td>
+                      <td colSpan="9" className="px-6 py-10 text-center text-gray-400">No captured payments yet</td>
                     </tr>
                   ) : (
-                    getFilteredPayments().map(payment => (
+                    getCapturedPayments().map(payment => (
                       <tr key={payment.id} className="hover:bg-orange-50/40 transition-colors">
                         <td className="px-6 py-3 font-medium text-gray-900">{payment.name}</td>
-                        <td className="px-6 py-3 text-gray-600 max-w-[200px] truncate">{payment.school}</td>
-                        <td className="px-6 py-3 text-gray-600">{payment.city}</td>
-                        <td className="px-6 py-3 text-gray-600">{payment.class}</td>
+                        <td className="px-6 py-3 text-gray-600">{statusLabelOf(payment)}</td>
+                        <td className="px-6 py-3 text-gray-600 max-w-[200px] truncate">{institutionOf(payment)}</td>
+                        <td className="px-6 py-3 text-gray-600">{detailOf(payment)}</td>
                         <td className="px-6 py-3 text-gray-600">{payment.mobile}</td>
                         <td className="px-6 py-3">
                           <span className="bg-green-100 text-green-700 font-semibold px-2 py-0.5 rounded-lg text-xs">₹{payment.amount}</span>
                         </td>
                         <td className="px-6 py-3 font-mono text-xs text-gray-400">{payment.payment_id}</td>
+                        <td className="px-6 py-3 text-gray-500 text-xs">{new Date(payment.timestamp).toLocaleDateString()}</td>
+                        <td className="px-6 py-3">
+                          <button onClick={() => updateBookGiven(payment, !payment.book_given)}
+                            className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${payment.book_given
+                              ? 'bg-green-100 text-green-700 hover:bg-green-200'
+                              : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
+                            {payment.book_given ? '✓ Given' : 'Not Given'}
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Non-Captured Payments */}
+            <div className="px-6 pt-6 pb-2 flex items-center gap-2 border-t border-gray-100 mt-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-amber-400" />
+              <h3 className="text-sm font-bold text-gray-700">Non-Captured Payments</h3>
+              <span className="text-xs text-gray-400">({getNonCapturedPayments().length})</span>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left font-semibold">Name</th>
+                    <th className="px-6 py-3 text-left font-semibold">Status</th>
+                    <th className="px-6 py-3 text-left font-semibold">Institution</th>
+                    <th className="px-6 py-3 text-left font-semibold">Class / Branch</th>
+                    <th className="px-6 py-3 text-left font-semibold">Mobile</th>
+                    <th className="px-6 py-3 text-left font-semibold">Payment</th>
+                    <th className="px-6 py-3 text-left font-semibold">Date</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {getNonCapturedPayments().length === 0 ? (
+                    <tr>
+                      <td colSpan="7" className="px-6 py-10 text-center text-gray-400">No pending or failed payments</td>
+                    </tr>
+                  ) : (
+                    getNonCapturedPayments().map(payment => (
+                      <tr key={payment.id} className="hover:bg-orange-50/40 transition-colors">
+                        <td className="px-6 py-3 font-medium text-gray-900">{payment.name}</td>
+                        <td className="px-6 py-3 text-gray-600">{statusLabelOf(payment)}</td>
+                        <td className="px-6 py-3 text-gray-600 max-w-[200px] truncate">{institutionOf(payment)}</td>
+                        <td className="px-6 py-3 text-gray-600">{detailOf(payment)}</td>
+                        <td className="px-6 py-3 text-gray-600">{payment.mobile}</td>
+                        <td className="px-6 py-3">
+                          <span className={`font-semibold px-2 py-0.5 rounded-lg text-xs ${payment.status === 'failed'
+                            ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
+                            {payment.status === 'failed' ? 'Failed' : 'Pending'}
+                          </span>
+                        </td>
                         <td className="px-6 py-3 text-gray-500 text-xs">{new Date(payment.timestamp).toLocaleDateString()}</td>
                       </tr>
                     ))
@@ -718,7 +938,7 @@ function App() {
             {showAddSchool && (
               <div className="px-6 py-5 bg-gray-50 border-b border-gray-100">
                 <h3 className="text-sm font-bold text-gray-700 mb-4">Add New School</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <input type="text" placeholder="School Name" value={newSchool.name}
                     onChange={(e) => setNewSchool(prev => ({ ...prev, name: e.target.value }))}
                     className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-orange-400 outline-none bg-white" />
@@ -730,25 +950,13 @@ function App() {
                   <input type="text" placeholder="Devotee Name" value={newSchool.devotee}
                     onChange={(e) => setNewSchool(prev => ({ ...prev, devotee: e.target.value }))}
                     className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-orange-400 outline-none bg-white" />
-                  <div className="border border-gray-200 rounded-xl px-4 py-2.5 bg-white">
-                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Languages</p>
-                    <div className="flex flex-wrap gap-2">
-                      {['English', 'Hindi', 'Marathi', 'Gujarati', 'Tamil', 'Telugu'].map(lang => (
-                        <label key={lang} className="flex items-center gap-1.5 cursor-pointer">
-                          <input type="checkbox" checked={newSchool.languages.includes(lang)} onChange={() => toggleLanguage(lang, true)}
-                            className="accent-orange-500" />
-                          <span className="text-sm text-gray-700">{lang}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
                 </div>
                 <div className="flex gap-2 mt-4">
                   <button onClick={addSchoolToDb}
                     className="flex items-center gap-2 bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-all">
                     <Save size={15} /> Save School
                   </button>
-                  <button onClick={() => { setShowAddSchool(false); setNewSchool({ name: '', city: '', devotee: '', languages: [] }); }}
+                  <button onClick={() => { setShowAddSchool(false); setNewSchool({ name: '', city: '', devotee: '' }); }}
                     className="flex items-center gap-2 bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-xl text-sm font-semibold transition-all">
                     <X size={15} /> Cancel
                   </button>
@@ -760,7 +968,7 @@ function App() {
               {schools.map(school => (
                 <div key={school.id} className="px-6 py-4">
                   {editingSchool?.id === school.id ? (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       <input type="text" value={editingSchool.name}
                         onChange={(e) => setEditingSchool(prev => ({ ...prev, name: e.target.value }))}
                         className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-orange-400 outline-none" />
@@ -772,19 +980,7 @@ function App() {
                       <input type="text" value={editingSchool.devotee}
                         onChange={(e) => setEditingSchool(prev => ({ ...prev, devotee: e.target.value }))}
                         className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-orange-400 outline-none" />
-                      <div className="border border-gray-200 rounded-xl px-4 py-2.5">
-                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Languages</p>
-                        <div className="flex flex-wrap gap-2">
-                          {['English', 'Hindi', 'Marathi', 'Gujarati', 'Tamil', 'Telugu'].map(lang => (
-                            <label key={lang} className="flex items-center gap-1.5 cursor-pointer">
-                              <input type="checkbox" checked={editingSchool.languages.includes(lang)} onChange={() => toggleLanguage(lang)}
-                                className="accent-orange-500" />
-                              <span className="text-sm text-gray-700">{lang}</span>
-                            </label>
-                          ))}
-                        </div>
-                      </div>
-                      <div className="flex gap-2 md:col-span-2">
+                      <div className="flex gap-2 md:col-span-3">
                         <button onClick={() => updateSchoolInDb(school.id)}
                           className="flex items-center gap-2 bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-all">
                           <Save size={15} /> Save
@@ -803,11 +999,6 @@ function App() {
                           <span className="text-xs text-gray-400">{school.city}</span>
                           <span className="text-xs text-gray-400">by {school.devotee}</span>
                         </div>
-                        <div className="flex flex-wrap gap-1 mt-2">
-                          {school.languages.map(lang => (
-                            <span key={lang} className="bg-orange-100 text-orange-700 text-xs px-2 py-0.5 rounded-lg font-medium">{lang}</span>
-                          ))}
-                        </div>
                       </div>
                       <div className="flex gap-2 shrink-0">
                         <button onClick={() => setEditingSchool(school)}
@@ -815,6 +1006,102 @@ function App() {
                           <Edit2 size={16} />
                         </button>
                         <button onClick={() => deleteSchoolFromDb(school.id)}
+                          className="p-2 bg-red-50 text-red-500 hover:bg-red-100 rounded-xl transition-colors">
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Colleges Management */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+            <div className="flex justify-between items-center px-6 py-5 border-b border-gray-100">
+              <div>
+                <h2 className="text-lg font-bold text-gray-900">Colleges Management</h2>
+                <p className="text-sm text-gray-400 mt-0.5">{colleges.length} colleges</p>
+              </div>
+              <button onClick={() => setShowAddCollege(!showAddCollege)}
+                className="flex items-center gap-2 bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-all">
+                <Plus size={16} />
+                Add College
+              </button>
+            </div>
+
+            {showAddCollege && (
+              <div className="px-6 py-5 bg-gray-50 border-b border-gray-100">
+                <h3 className="text-sm font-bold text-gray-700 mb-4">Add New College</h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <input type="text" placeholder="College Name" value={newCollege.name}
+                    onChange={(e) => setNewCollege(prev => ({ ...prev, name: e.target.value }))}
+                    className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-orange-400 outline-none bg-white" />
+                  <select value={newCollege.city} onChange={(e) => setNewCollege(prev => ({ ...prev, city: e.target.value }))}
+                    className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-orange-400 outline-none bg-white">
+                    <option value="">Select City</option>
+                    {cities.map(city => <option key={city.id} value={city.name}>{city.name}</option>)}
+                  </select>
+                  <input type="text" placeholder="Devotee Name" value={newCollege.devotee}
+                    onChange={(e) => setNewCollege(prev => ({ ...prev, devotee: e.target.value }))}
+                    className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-orange-400 outline-none bg-white" />
+                </div>
+                <div className="flex gap-2 mt-4">
+                  <button onClick={addCollegeToDb}
+                    className="flex items-center gap-2 bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-all">
+                    <Save size={15} /> Save College
+                  </button>
+                  <button onClick={() => { setShowAddCollege(false); setNewCollege({ name: '', city: '', devotee: '' }); }}
+                    className="flex items-center gap-2 bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-xl text-sm font-semibold transition-all">
+                    <X size={15} /> Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="divide-y divide-gray-50">
+              {colleges.map(college => (
+                <div key={college.id} className="px-6 py-4">
+                  {editingCollege?.id === college.id ? (
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <input type="text" value={editingCollege.name}
+                        onChange={(e) => setEditingCollege(prev => ({ ...prev, name: e.target.value }))}
+                        className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-orange-400 outline-none" />
+                      <select value={editingCollege.city}
+                        onChange={(e) => setEditingCollege(prev => ({ ...prev, city: e.target.value }))}
+                        className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-orange-400 outline-none">
+                        {cities.map(city => <option key={city.id} value={city.name}>{city.name}</option>)}
+                      </select>
+                      <input type="text" value={editingCollege.devotee}
+                        onChange={(e) => setEditingCollege(prev => ({ ...prev, devotee: e.target.value }))}
+                        className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-orange-400 outline-none" />
+                      <div className="flex gap-2 md:col-span-3">
+                        <button onClick={() => updateCollegeInDb(college.id)}
+                          className="flex items-center gap-2 bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-all">
+                          <Save size={15} /> Save
+                        </button>
+                        <button onClick={() => setEditingCollege(null)}
+                          className="flex items-center gap-2 bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-xl text-sm font-semibold transition-all">
+                          <X size={15} /> Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex justify-between items-start gap-4">
+                      <div className="min-w-0">
+                        <h3 className="font-semibold text-gray-900 truncate">{college.name}</h3>
+                        <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-1">
+                          <span className="text-xs text-gray-400">{college.city}</span>
+                          <span className="text-xs text-gray-400">by {college.devotee}</span>
+                        </div>
+                      </div>
+                      <div className="flex gap-2 shrink-0">
+                        <button onClick={() => setEditingCollege(college)}
+                          className="p-2 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-xl transition-colors">
+                          <Edit2 size={16} />
+                        </button>
+                        <button onClick={() => deleteCollegeFromDb(college.id)}
                           className="p-2 bg-red-50 text-red-500 hover:bg-red-100 rounded-xl transition-colors">
                           <Trash2 size={16} />
                         </button>
@@ -973,50 +1260,123 @@ function App() {
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">School</label>
-              <select name="school" value={formData.school} onChange={handleInputChange}
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Current Status</label>
+              <select name="currentStatus" value={formData.currentStatus} onChange={handleInputChange}
                 className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-orange-400 focus:bg-white outline-none transition-all text-gray-800 cursor-pointer">
-                <option value="">Select your school</option>
-                {getFilteredSchools().map(school => (
-                  <option key={school.id} value={school.name}>{school.name}</option>
-                ))}
-                <option value="Other">Other</option>
+                <option value="">Select your current status</option>
+                <option value="school">Studying in a school</option>
+                <option value="college">Studying in a college</option>
+                <option value="working">Working</option>
+                <option value="other">Other</option>
               </select>
             </div>
 
-            {formData.school === 'Other' && (
+            {/* School path */}
+            {formData.currentStatus === 'school' && (
               <>
-                <input type="text" placeholder="Enter your school name (optional)" value={otherSchoolName}
-                  onChange={(e) => setOtherSchoolName(e.target.value)}
-                  className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-orange-400 focus:bg-white outline-none transition-all text-gray-800 placeholder-gray-400" />
-                <div className="flex items-start gap-3 bg-red-50 border-2 border-red-200 rounded-xl p-4">
-                  <span className="text-xl shrink-0 mt-0.5">⚠️</span>
-                  <p className="text-red-700 font-bold text-sm leading-snug">
-                    Please collect your booklet from ISKCON ABIDS temple only
-                  </p>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">School</label>
+                  <select name="school" value={formData.school} onChange={handleInputChange}
+                    className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-orange-400 focus:bg-white outline-none transition-all text-gray-800 cursor-pointer">
+                    <option value="">Select your school</option>
+                    {schools.map(school => (
+                      <option key={school.id} value={school.name}>{school.name}</option>
+                    ))}
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+
+                {formData.school === 'Other' && (
+                  <>
+                    <input type="text" placeholder="Enter your school name" value={otherSchoolName}
+                      onChange={(e) => setOtherSchoolName(e.target.value)}
+                      className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-orange-400 focus:bg-white outline-none transition-all text-gray-800 placeholder-gray-400" />
+                    <div className="flex items-start gap-3 bg-red-50 border-2 border-red-200 rounded-xl p-4">
+                      <span className="text-xl shrink-0 mt-0.5">⚠️</span>
+                      <p className="text-red-700 font-bold text-sm leading-snug">
+                        Please collect your booklet from ISKCON ABIDS temple only
+                      </p>
+                    </div>
+                  </>
+                )}
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Class</label>
+                  <select name="class" value={formData.class} onChange={handleInputChange}
+                    className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-orange-400 focus:bg-white outline-none transition-all text-gray-800 cursor-pointer">
+                    <option value="">Select your class</option>
+                    {classes.map(cls => <option key={cls} value={cls}>{cls}</option>)}
+                  </select>
                 </div>
               </>
             )}
 
-            <div className="grid grid-cols-2 gap-4">
+            {/* College path */}
+            {formData.currentStatus === 'college' && (
+              <>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">College</label>
+                  <select name="college" value={formData.college} onChange={handleInputChange}
+                    className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-orange-400 focus:bg-white outline-none transition-all text-gray-800 cursor-pointer">
+                    <option value="">Select your college</option>
+                    {colleges.map(college => (
+                      <option key={college.id} value={college.name}>{college.name}</option>
+                    ))}
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+
+                {formData.college === 'Other' && (
+                  <>
+                    <input type="text" placeholder="Enter your college name" value={otherCollegeName}
+                      onChange={(e) => setOtherCollegeName(e.target.value)}
+                      className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-orange-400 focus:bg-white outline-none transition-all text-gray-800 placeholder-gray-400" />
+                    <div className="flex items-start gap-3 bg-red-50 border-2 border-red-200 rounded-xl p-4">
+                      <span className="text-xl shrink-0 mt-0.5">⚠️</span>
+                      <p className="text-red-700 font-bold text-sm leading-snug">
+                        Please collect your booklet from ISKCON ABIDS temple only
+                      </p>
+                    </div>
+                  </>
+                )}
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Branch</label>
+                  <input type="text" name="branch" placeholder="Enter your branch / stream" value={formData.branch} onChange={handleInputChange}
+                    className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-orange-400 focus:bg-white outline-none transition-all text-gray-800 placeholder-gray-400" />
+                </div>
+              </>
+            )}
+
+            {/* Working path */}
+            {formData.currentStatus === 'working' && (
               <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Class</label>
-                <select name="class" value={formData.class} onChange={handleInputChange}
-                  className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-orange-400 focus:bg-white outline-none transition-all text-gray-800 cursor-pointer">
-                  <option value="">Select</option>
-                  {classes.map(cls => <option key={cls} value={cls}>{cls}</option>)}
-                </select>
+                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Company Name</label>
+                <input type="text" name="companyName" placeholder="Enter your company name" value={formData.companyName} onChange={handleInputChange}
+                  className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-orange-400 focus:bg-white outline-none transition-all text-gray-800 placeholder-gray-400" />
               </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Mobile</label>
-                <input type="tel" name="mobile" placeholder="Mobile number" value={formData.mobile} onChange={handleInputChange}
-                  className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-orange-400 focus:bg-white outline-none transition-all text-gray-800 placeholder-gray-400 font-medium" />
+            )}
+
+            {/* Other path */}
+            {formData.currentStatus === 'other' && (
+              <div className="flex items-start gap-3 bg-red-50 border-2 border-red-200 rounded-xl p-4">
+                <span className="text-xl shrink-0 mt-0.5">⚠️</span>
+                <p className="text-red-700 font-bold text-sm leading-snug">
+                  Please collect your booklet from ISKCON ABIDS temple only
+                </p>
               </div>
+            )}
+
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Mobile</label>
+              <input type="tel" name="mobile" placeholder="Mobile number" value={formData.mobile} onChange={handleInputChange}
+                className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-orange-400 focus:bg-white outline-none transition-all text-gray-800 placeholder-gray-400 font-medium" />
             </div>
 
             <div>
               <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Preferred Language</label>
-              <select name="language" value={formData.language} onChange={handleInputChange} disabled={!formData.school}
+              <select name="language" value={formData.language} onChange={handleInputChange}
+                disabled={!formData.currentStatus || formData.currentStatus === 'school'}
                 className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-orange-400 focus:bg-white outline-none transition-all text-gray-800 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
                 <option value="">Select language</option>
                 {getAvailableLanguages().map(lang => <option key={lang} value={lang}>{lang}</option>)}
