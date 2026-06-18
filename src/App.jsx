@@ -1353,17 +1353,9 @@ function App() {
                 </div>
 
                 {formData.college === 'Other' && (
-                  <>
-                    <input type="text" placeholder="Enter your college name" value={otherCollegeName}
-                      onChange={(e) => setOtherCollegeName(e.target.value)}
-                      className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-orange-400 focus:bg-white outline-none transition-all text-gray-800 placeholder-gray-400" />
-                    <div className="flex items-start gap-3 bg-red-50 border-2 border-red-200 rounded-xl p-4">
-                      <span className="text-xl shrink-0 mt-0.5">⚠️</span>
-                      <p className="text-red-700 font-bold text-sm leading-snug">
-                        Please collect your booklet from ISKCON ABIDS temple only
-                      </p>
-                    </div>
-                  </>
+                  <input type="text" placeholder="Enter your college name" value={otherCollegeName}
+                    onChange={(e) => setOtherCollegeName(e.target.value)}
+                    className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-orange-400 focus:bg-white outline-none transition-all text-gray-800 placeholder-gray-400" />
                 )}
 
                 <div>
@@ -1371,16 +1363,31 @@ function App() {
                   <input type="text" name="branch" placeholder="Enter your branch / stream" value={formData.branch} onChange={handleInputChange}
                     className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-orange-400 focus:bg-white outline-none transition-all text-gray-800 placeholder-gray-400" />
                 </div>
+
+                <div className="flex items-start gap-3 bg-red-50 border-2 border-red-200 rounded-xl p-4">
+                  <span className="text-xl shrink-0 mt-0.5">⚠️</span>
+                  <p className="text-red-700 font-bold text-sm leading-snug">
+                    Please collect your booklet from ISKCON ABIDS temple only
+                  </p>
+                </div>
               </>
             )}
 
             {/* Working path */}
             {formData.currentStatus === 'working' && (
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Company Name</label>
-                <input type="text" name="companyName" placeholder="Enter your company name" value={formData.companyName} onChange={handleInputChange}
-                  className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-orange-400 focus:bg-white outline-none transition-all text-gray-800 placeholder-gray-400" />
-              </div>
+              <>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Company Name</label>
+                  <input type="text" name="companyName" placeholder="Enter your company name" value={formData.companyName} onChange={handleInputChange}
+                    className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-orange-400 focus:bg-white outline-none transition-all text-gray-800 placeholder-gray-400" />
+                </div>
+                <div className="flex items-start gap-3 bg-red-50 border-2 border-red-200 rounded-xl p-4">
+                  <span className="text-xl shrink-0 mt-0.5">⚠️</span>
+                  <p className="text-red-700 font-bold text-sm leading-snug">
+                    Please collect your booklet from ISKCON ABIDS temple only
+                  </p>
+                </div>
+              </>
             )}
 
             {/* Other path */}
