@@ -651,12 +651,13 @@ function App() {
     const filteredPayments = getFilteredPayments();
     if (filteredPayments.length === 0) { alert('No payments to export with the current filters.'); return; }
 
-    const headers = ['Name', 'Current Status', 'City', 'School', 'Class', 'College', 'Branch', 'Company', 'Mobile', 'Language', 'Referred By', 'Amount', 'Payment ID', 'Date', 'Status', 'Book Given'];
+    const headers = ['Name', 'Current Status', 'City', 'School', 'Class', 'College', 'Branch', 'Company', 'Mobile', 'Language', 'Referred By', 'Amount', 'Payment ID', 'Date', 'Status', 'Book Given', 'Child Name', 'Child School', 'Child Section'];
     const rows = filteredPayments.map(p => [
       p.name, p.current_status || '', p.city, p.school, p.class,
       p.college || '', p.branch || '', p.company_name || '',
       p.mobile, p.language, p.referred_by || '', p.amount, p.payment_id,
-      new Date(p.timestamp).toLocaleString(), p.status, p.book_given ? 'Yes' : 'No'
+      new Date(p.timestamp).toLocaleString(), p.status, p.book_given ? 'Yes' : 'No',
+      p.child_name || '', p.child_school || '', p.child_section || ''
     ]);
 
     const csvContent = [headers.join(','), ...rows.map(row => row.map(cell => `"${cell}"`).join(','))].join('\n');
@@ -817,6 +818,7 @@ function App() {
                     <th className="px-6 py-3 text-left font-semibold">Status</th>
                     <th className="px-6 py-3 text-left font-semibold">Institution</th>
                     <th className="px-6 py-3 text-left font-semibold">Class / Branch</th>
+                    <th className="px-6 py-3 text-left font-semibold">Child</th>
                     <th className="px-6 py-3 text-left font-semibold">Mobile</th>
                     <th className="px-6 py-3 text-left font-semibold">Amount</th>
                     <th className="px-6 py-3 text-left font-semibold">Payment ID</th>
@@ -827,7 +829,7 @@ function App() {
                 <tbody className="divide-y divide-gray-50">
                   {getCapturedPayments().length === 0 ? (
                     <tr>
-                      <td colSpan="9" className="px-6 py-10 text-center text-gray-400">No captured payments yet</td>
+                      <td colSpan="10" className="px-6 py-10 text-center text-gray-400">No captured payments yet</td>
                     </tr>
                   ) : (
                     getCapturedPayments().map(payment => (
@@ -836,6 +838,11 @@ function App() {
                         <td className="px-6 py-3 text-gray-600">{statusLabelOf(payment)}</td>
                         <td className="px-6 py-3 text-gray-600 max-w-[200px] truncate">{institutionOf(payment)}</td>
                         <td className="px-6 py-3 text-gray-600">{detailOf(payment)}</td>
+                        <td className="px-6 py-3 text-gray-600 text-xs">
+                          {payment.has_children
+                            ? <span className="space-y-0.5"><span className="block font-semibold text-gray-800">{payment.child_name}</span><span className="block text-gray-500">{payment.child_school} · Sec {payment.child_section}</span></span>
+                            : <span className="text-gray-300">—</span>}
+                        </td>
                         <td className="px-6 py-3 text-gray-600">{payment.mobile}</td>
                         <td className="px-6 py-3">
                           <span className="bg-green-100 text-green-700 font-semibold px-2 py-0.5 rounded-lg text-xs">₹{payment.amount}</span>
@@ -873,6 +880,7 @@ function App() {
                     <th className="px-6 py-3 text-left font-semibold">Status</th>
                     <th className="px-6 py-3 text-left font-semibold">Institution</th>
                     <th className="px-6 py-3 text-left font-semibold">Class / Branch</th>
+                    <th className="px-6 py-3 text-left font-semibold">Child</th>
                     <th className="px-6 py-3 text-left font-semibold">Mobile</th>
                     <th className="px-6 py-3 text-left font-semibold">Payment</th>
                     <th className="px-6 py-3 text-left font-semibold">Date</th>
@@ -881,7 +889,7 @@ function App() {
                 <tbody className="divide-y divide-gray-50">
                   {getNonCapturedPayments().length === 0 ? (
                     <tr>
-                      <td colSpan="7" className="px-6 py-10 text-center text-gray-400">No pending or failed payments</td>
+                      <td colSpan="8" className="px-6 py-10 text-center text-gray-400">No pending or failed payments</td>
                     </tr>
                   ) : (
                     getNonCapturedPayments().map(payment => (
@@ -890,6 +898,11 @@ function App() {
                         <td className="px-6 py-3 text-gray-600">{statusLabelOf(payment)}</td>
                         <td className="px-6 py-3 text-gray-600 max-w-[200px] truncate">{institutionOf(payment)}</td>
                         <td className="px-6 py-3 text-gray-600">{detailOf(payment)}</td>
+                        <td className="px-6 py-3 text-gray-600 text-xs">
+                          {payment.has_children
+                            ? <span className="space-y-0.5"><span className="block font-semibold text-gray-800">{payment.child_name}</span><span className="block text-gray-500">{payment.child_school} · Sec {payment.child_section}</span></span>
+                            : <span className="text-gray-300">—</span>}
+                        </td>
                         <td className="px-6 py-3 text-gray-600">{payment.mobile}</td>
                         <td className="px-6 py-3">
                           <span className={`font-semibold px-2 py-0.5 rounded-lg text-xs ${payment.status === 'failed'
