@@ -1408,23 +1408,12 @@ function App() {
                   <input type="text" name="companyName" placeholder="Enter your company name" value={formData.companyName} onChange={handleInputChange}
                     className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-orange-400 focus:bg-white outline-none transition-all text-gray-800 placeholder-gray-400" />
                 </div>
-                <div className="flex items-start gap-3 bg-red-50 border-2 border-red-200 rounded-xl p-4">
-                  <span className="text-xl shrink-0 mt-0.5">⚠️</span>
-                  <p className="text-red-700 font-bold text-sm leading-snug">
-                    Please collect your booklet from ISKCON ABIDS temple only
-                  </p>
-                </div>
               </>
             )}
 
             {/* Other path */}
             {formData.currentStatus === 'other' && (
-              <div className="flex items-start gap-3 bg-red-50 border-2 border-red-200 rounded-xl p-4">
-                <span className="text-xl shrink-0 mt-0.5">⚠️</span>
-                <p className="text-red-700 font-bold text-sm leading-snug">
-                  Please collect your booklet from ISKCON ABIDS temple only
-                </p>
-              </div>
+              <></>
             )}
 
             {/* Children participation — shown for Working and Other */}
@@ -1495,6 +1484,16 @@ function App() {
                     className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-orange-400 focus:bg-white outline-none transition-all text-gray-800 placeholder-gray-400" />
                 </div>
               </>
+            )}
+
+            {/* Temple notice when children are not participating */}
+            {(formData.currentStatus === 'working' || formData.currentStatus === 'other') && childParticipates === 'no' && (
+              <div className="flex items-start gap-3 bg-red-50 border-2 border-red-200 rounded-xl p-4">
+                <span className="text-xl shrink-0 mt-0.5">⚠️</span>
+                <p className="text-red-700 font-bold text-sm leading-snug">
+                  Please collect your booklet from ISKCON ABIDS temple only
+                </p>
+              </div>
             )}
 
             <div>
