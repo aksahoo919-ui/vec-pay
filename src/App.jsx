@@ -25,6 +25,12 @@ function App() {
   const [otherSchoolName, setOtherSchoolName] = useState('');
   const [otherCollegeName, setOtherCollegeName] = useState('');
 
+  const [childParticipates, setChildParticipates] = useState('');
+  const [childName, setChildName] = useState('');
+  const [childSchool, setChildSchool] = useState('');
+  const [childOtherSchoolName, setChildOtherSchoolName] = useState('');
+  const [childSection, setChildSection] = useState('');
+
   // cities is {id, name}[]
   const [cities, setCities] = useState([]);
   const [schools, setSchools] = useState([]);
@@ -379,6 +385,10 @@ function App() {
         payment_id: paymentData.paymentId,
         status: paymentData.status,
         book_given: false,
+        has_children: paymentData.hasChildren || false,
+        child_name: paymentData.childName || '',
+        child_school: paymentData.childSchool || '',
+        child_section: paymentData.childSection || '',
         timestamp: new Date().toISOString()
       });
 
@@ -484,6 +494,14 @@ function App() {
       companyName = formData.companyName.trim();
     }
 
+    if (['working', 'other'].includes(formData.currentStatus) && childParticipates === 'yes') {
+      if (!childName.trim()) { alert("Please enter your child's name"); return; }
+      if (!childSchool) { alert("Please select your child's school"); return; }
+      if (childSchool === 'Other' && !childOtherSchoolName.trim()) { alert("Please enter your child's school name"); return; }
+      if (!childSection.trim()) { alert('Please enter the section'); return; }
+    }
+
+    const hasChildren = ['working', 'other'].includes(formData.currentStatus) && childParticipates === 'yes';
     const saved = await savePaymentToDb({
       name: formData.name,
       currentStatus: formData.currentStatus,
@@ -498,7 +516,11 @@ function App() {
       referredBy: getReferredBy(),
       amount: PAYMENT_AMOUNT,
       paymentId: 'pending',
-      status: 'pending'
+      status: 'pending',
+      hasChildren,
+      childName: hasChildren ? childName.trim() : '',
+      childSchool: hasChildren ? (childSchool === 'Other' ? childOtherSchoolName.trim() : childSchool) : '',
+      childSection: hasChildren ? childSection.trim() : ''
     });
 
     if (!saved) {
@@ -543,6 +565,11 @@ function App() {
     if (name === 'currentStatus') {
       setOtherSchoolName('');
       setOtherCollegeName('');
+      setChildParticipates('');
+      setChildName('');
+      setChildSchool('');
+      setChildOtherSchoolName('');
+      setChildSection('');
       setFormData(prev => ({
         ...prev,
         currentStatus: value,
@@ -1398,6 +1425,76 @@ function App() {
                   Please collect your booklet from ISKCON ABIDS temple only
                 </p>
               </div>
+            )}
+
+            {/* Children participation — shown for Working and Other */}
+            {(formData.currentStatus === 'working' || formData.currentStatus === 'other') && (
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                  Are your children also participating in this contest?
+                </label>
+                <div className="flex gap-3">
+                  <button type="button" onClick={() => setChildParticipates('yes')}
+                    className={`flex-1 py-3 rounded-xl font-semibold text-sm transition-all border-2 ${
+                      childParticipates === 'yes'
+                        ? 'bg-orange-500 text-white border-orange-500'
+                        : 'bg-gray-50 text-gray-700 border-gray-100 hover:border-orange-300'
+                    }`}>
+                    Yes
+                  </button>
+                  <button type="button" onClick={() => { setChildParticipates('no'); setChildName(''); setChildSchool(''); setChildOtherSchoolName(''); setChildSection(''); }}
+                    className={`flex-1 py-3 rounded-xl font-semibold text-sm transition-all border-2 ${
+                      childParticipates === 'no'
+                        ? 'bg-orange-500 text-white border-orange-500'
+                        : 'bg-gray-50 text-gray-700 border-gray-100 hover:border-orange-300'
+                    }`}>
+                    No
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Child details */}
+            {(formData.currentStatus === 'working' || formData.currentStatus === 'other') && childParticipates === 'yes' && (
+              <>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Child's Name</label>
+                  <input type="text" placeholder="Enter your child's name" value={childName}
+                    onChange={(e) => setChildName(e.target.value)}
+                    className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-orange-400 focus:bg-white outline-none transition-all text-gray-800 placeholder-gray-400" />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Child's School</label>
+                  <select value={childSchool} onChange={(e) => { setChildSchool(e.target.value); setChildOtherSchoolName(''); }}
+                    className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-orange-400 focus:bg-white outline-none transition-all text-gray-800 cursor-pointer">
+                    <option value="">Select school</option>
+                    {schools.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+
+                {childSchool === 'Other' && (
+                  <>
+                    <input type="text" placeholder="Enter school name" value={childOtherSchoolName}
+                      onChange={(e) => setChildOtherSchoolName(e.target.value)}
+                      className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-orange-400 focus:bg-white outline-none transition-all text-gray-800 placeholder-gray-400" />
+                    <div className="flex items-start gap-3 bg-red-50 border-2 border-red-200 rounded-xl p-4">
+                      <span className="text-xl shrink-0 mt-0.5">⚠️</span>
+                      <p className="text-red-700 font-bold text-sm leading-snug">
+                        Please collect your booklet from ISKCON ABIDS temple only
+                      </p>
+                    </div>
+                  </>
+                )}
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Section</label>
+                  <input type="text" placeholder="Enter section (e.g. A, B, C)" value={childSection}
+                    onChange={(e) => setChildSection(e.target.value)}
+                    className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-orange-400 focus:bg-white outline-none transition-all text-gray-800 placeholder-gray-400" />
+                </div>
+              </>
             )}
 
             <div>
