@@ -815,15 +815,15 @@ function App() {
                 <thead>
                   <tr className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider">
                     <th className="px-6 py-3 text-left font-semibold">Name</th>
+                    <th className="px-6 py-3 text-left font-semibold">Payment ID</th>
+                    <th className="px-6 py-3 text-left font-semibold">Date</th>
+                    <th className="px-6 py-3 text-left font-semibold">Book</th>
                     <th className="px-6 py-3 text-left font-semibold">Status</th>
                     <th className="px-6 py-3 text-left font-semibold">Institution</th>
                     <th className="px-6 py-3 text-left font-semibold">Class / Branch</th>
                     <th className="px-6 py-3 text-left font-semibold">Child</th>
                     <th className="px-6 py-3 text-left font-semibold">Mobile</th>
                     <th className="px-6 py-3 text-left font-semibold">Amount</th>
-                    <th className="px-6 py-3 text-left font-semibold">Payment ID</th>
-                    <th className="px-6 py-3 text-left font-semibold">Date</th>
-                    <th className="px-6 py-3 text-left font-semibold">Book</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
@@ -835,18 +835,6 @@ function App() {
                     getCapturedPayments().map(payment => (
                       <tr key={payment.id} className="hover:bg-orange-50/40 transition-colors">
                         <td className="px-6 py-3 font-medium text-gray-900">{payment.name}</td>
-                        <td className="px-6 py-3 text-gray-600">{statusLabelOf(payment)}</td>
-                        <td className="px-6 py-3 text-gray-600 max-w-[200px] truncate">{institutionOf(payment)}</td>
-                        <td className="px-6 py-3 text-gray-600">{detailOf(payment)}</td>
-                        <td className="px-6 py-3 text-gray-600 text-xs">
-                          {payment.has_children
-                            ? <span className="space-y-0.5"><span className="block font-semibold text-gray-800">{payment.child_name}</span><span className="block text-gray-500">{payment.child_school} · Sec {payment.child_section}</span></span>
-                            : <span className="text-gray-300">—</span>}
-                        </td>
-                        <td className="px-6 py-3 text-gray-600">{payment.mobile}</td>
-                        <td className="px-6 py-3">
-                          <span className="bg-green-100 text-green-700 font-semibold px-2 py-0.5 rounded-lg text-xs">₹{payment.amount}</span>
-                        </td>
                         <td className="px-6 py-3 font-mono text-xs text-gray-400">{payment.payment_id}</td>
                         <td className="px-6 py-3 text-gray-500 text-xs">{new Date(payment.timestamp).toLocaleDateString()}</td>
                         <td className="px-6 py-3">
@@ -858,6 +846,18 @@ function App() {
                               {payment.book_given ? 'Given' : 'Not given'}
                             </span>
                           </label>
+                        </td>
+                        <td className="px-6 py-3 text-gray-600">{statusLabelOf(payment)}</td>
+                        <td className="px-6 py-3 text-gray-600 max-w-[200px] truncate">{institutionOf(payment)}</td>
+                        <td className="px-6 py-3 text-gray-600">{detailOf(payment)}</td>
+                        <td className="px-6 py-3 text-gray-600 text-xs">
+                          {payment.has_children
+                            ? <span className="space-y-0.5"><span className="block font-semibold text-gray-800">{payment.child_name}</span><span className="block text-gray-500">{payment.child_school} · Sec {payment.child_section}</span></span>
+                            : <span className="text-gray-300">—</span>}
+                        </td>
+                        <td className="px-6 py-3 text-gray-600">{payment.mobile}</td>
+                        <td className="px-6 py-3">
+                          <span className="bg-green-100 text-green-700 font-semibold px-2 py-0.5 rounded-lg text-xs">₹{payment.amount}</span>
                         </td>
                       </tr>
                     ))
