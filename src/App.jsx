@@ -361,7 +361,7 @@ function App() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed');
-      alert(`Exported ${data.synced} captured payment(s) to Google Sheet.`);
+      alert(`Added ${data.added} new payment(s) to Google Sheet (${data.total} captured in total).`);
     } catch (err) {
       console.error('Sync push failed:', err);
       alert(`Export failed: ${err.message}`);
@@ -381,7 +381,7 @@ function App() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed');
-      alert(`Exported ${data.synced} captured payment(s) to Others Sheet.`);
+      alert(`Added ${data.added} new payment(s) to Others Sheet (${data.total} captured in total).`);
     } catch (err) {
       console.error('Sync push others failed:', err);
       alert(`Export failed: ${err.message}`);
@@ -874,7 +874,7 @@ function App() {
           {/* Stats */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {[
-              { label: 'Total Registrations', value: payments.length, sub: 'All time', color: 'text-gray-900' },
+              { label: 'Total Registrations', value: getCapturedPayments().length, sub: 'All time', color: 'text-gray-900' },
               { label: 'Total Revenue', value: `₹${payments.filter(p => p.status === 'captured').reduce((s, p) => s + (p.amount || 0), 0).toLocaleString()}`, sub: 'Captured payments only', color: 'text-green-600' },
               { label: 'Active Schools', value: schools.length, sub: 'Across all cities', color: 'text-orange-600' },
             ].map(stat => (

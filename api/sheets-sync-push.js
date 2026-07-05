@@ -49,18 +49,28 @@ export default async function handler(req, res) {
       payments = data || [];
     }
 
-    // Clear existing data rows, keep header at row 1
-    const clearRange = isOthers ? 'A2:K' : 'A2:H';
-    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(clearRange)}:clear`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({})
-    });
+    // Read existing rows so we only append payments not already in the sheet.
+    // Payment ID column: index 5 (F) for school sheets, index 8 (I) for Others.
+    const pidIdx = isOthers ? 8 : 5;
+    const readRange = isOthers ? 'A2:K' : 'A2:H';
+    const existingRes = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(readRange)}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    const existingData = await existingRes.json();
+    const existingIds = new Set(
+      (existingData.values || [])
+        .map(r => r[pidIdx]?.trim())
+        .filter(Boolean)
+    );
 
-    if (payments.length > 0) {
+    // Only keep captured payments whose payment_id isn't already in the sheet
+    const newPayments = payments.filter(p => !existingIds.has(p.payment_id));
+
+    if (newPayments.length > 0) {
       const typeLabels = { school: 'School', college: 'College', working: 'Working', other: 'Other' };
 
-      const rows = payments.map(p => {
+      const rows = newPayments.map(p => {
         const date = new Date(p.timestamp).toLocaleDateString('en-IN');
         const bookGiven = p.book_given ? 'Yes' : 'No';
 
@@ -104,7 +114,7 @@ export default async function handler(req, res) {
       });
     }
 
-    return res.status(200).json({ synced: payments.length });
+    return res.status(200).json({ added: newPayments.length, total: payments.length });
   } catch (err) {
     console.error('sheets-sync-push error:', err);
     return res.status(500).json({ error: err.message });
