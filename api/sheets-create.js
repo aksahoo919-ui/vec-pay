@@ -44,7 +44,7 @@ export default async function handler(req, res) {
     });
 
     // Share with the owner's Gmail so it appears in their Drive
-    await fetch(`https://www.googleapis.com/drive/v3/files/${sheetId}/permissions`, {
+    await fetch(`https://www.googleapis.com/drive/v3/files/${sheetId}/permissions?sendNotificationEmail=false`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
