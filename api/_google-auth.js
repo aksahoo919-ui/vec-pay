@@ -32,10 +32,8 @@ export async function getGoogleAccessToken() {
 
   const data = await res.json();
   if (!data.access_token) throw new Error('Google auth failed: ' + JSON.stringify(data));
-  console.log('Google token granted scope:', data.scope);
-  if (!data.scope || !data.scope.includes('spreadsheets')) {
-    throw new Error('Access token is missing the spreadsheets scope. Granted: ' + (data.scope || 'none'));
-  }
+  // Note: the JWT-bearer grant response does not echo a `scope` field,
+  // even though the issued token carries the scopes from the JWT payload.
   return data.access_token;
 }
 
