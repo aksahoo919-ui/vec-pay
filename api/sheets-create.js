@@ -30,8 +30,15 @@ export default async function handler(req, res) {
     });
     const sheet = await createRes.json();
     if (!sheet.spreadsheetId) {
-      const sa = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
-      throw new Error(`Sheet creation failed (HTTP ${createRes.status}) using service account ${sa.client_email}: ${JSON.stringify(sheet)}`);
+      // Ask Google what scopes are actually on this token, to settle whether
+      // this is a scope problem or a file-creation-permission problem.
+      let tokenScopes = 'unknown';
+      try {
+        const ti = await fetch(`https://oauth2.googleapis.com/tokeninfo?access_token=${token}`);
+        const tiData = await ti.json();
+        tokenScopes = tiData.scope || JSON.stringify(tiData);
+      } catch { /* ignore */ }
+      throw new Error(`Sheet creation failed (HTTP ${createRes.status}): ${JSON.stringify(sheet)} | token scopes: ${tokenScopes}`);
     }
     const sheetId = sheet.spreadsheetId;
 
