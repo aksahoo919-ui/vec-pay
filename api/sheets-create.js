@@ -43,15 +43,11 @@ export default async function handler(req, res) {
       body: JSON.stringify({ values: headers })
     });
 
-    // Share with the owner's Gmail so it appears in their Drive
-    await fetch(`https://www.googleapis.com/drive/v3/files/${sheetId}/permissions?sendNotificationEmail=false`, {
+    // Make the sheet accessible to anyone with the link (writer)
+    await fetch(`https://www.googleapis.com/drive/v3/files/${sheetId}/permissions`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        role: 'writer',
-        type: 'user',
-        emailAddress: process.env.GOOGLE_SHEETS_OWNER_EMAIL
-      })
+      body: JSON.stringify({ role: 'writer', type: 'anyone' })
     });
 
     // Store the sheet ID in Supabase
