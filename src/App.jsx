@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { User, LogOut, Plus, Edit2, Trash2, Save, X, Download } from 'lucide-react';
+import { User, LogOut, Plus, Edit2, Trash2, Save, X, Download, ExternalLink, FileSpreadsheet, RefreshCw, Loader2 } from 'lucide-react';
 import { supabase } from './config/supabase';
 
 const PAYMENT_AMOUNT = 30;
@@ -57,6 +57,9 @@ function App() {
   const [selectedBookFilter, setSelectedBookFilter] = useState('');
   const [capturedSearch, setCapturedSearch] = useState('');
 
+  const [sheetLoading, setSheetLoading] = useState({});
+  const [othersSheetId, setOthersSheetId] = useState('');
+
   // Admin management
   const [admins, setAdmins] = useState([]);
   const [newAdminEmail, setNewAdminEmail] = useState('');
@@ -94,6 +97,7 @@ function App() {
           setAdminEmail(user.email);
           loadPayments();
           loadAdmins();
+          loadSettings();
         } else {
           setIsAdmin(false);
           setAdminEmail('');
@@ -245,6 +249,7 @@ function App() {
       setNewSchool({ name: '', city: '', devotee: '' });
       setShowAddSchool(false);
       alert('School added successfully!');
+      createSchoolSheet(data);
     } catch (error) {
       console.error('Error adding school:', error);
       alert(`Error adding school: ${error.message}`);
@@ -284,6 +289,148 @@ function App() {
     } catch (error) {
       console.error('Error deleting school:', error);
       alert(`Error deleting school: ${error.message}`);
+    }
+  };
+
+  // ── Google Sheets ─────────────────────────────────────────────
+
+  const getSessionToken = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    return session?.access_token || '';
+  };
+
+  const loadSettings = async () => {
+    try {
+      const { data } = await supabase.from('settings').select('*');
+      const othersId = data?.find(s => s.key === 'others_sheet_id')?.value || '';
+      setOthersSheetId(othersId);
+    } catch (err) {
+      console.error('Error loading settings:', err);
+    }
+  };
+
+  const createSchoolSheet = async (school) => {
+    setSheetLoading(prev => ({ ...prev, [school.id]: 'create' }));
+    try {
+      const token = await getSessionToken();
+      const res = await fetch('/api/sheets-create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ schoolId: school.id, schoolName: school.name })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed');
+      setSchools(prev => prev.map(s => s.id === school.id ? { ...s, sheet_id: data.sheetId } : s));
+    } catch (err) {
+      console.error('Create sheet failed:', err);
+      alert(`Could not create Google Sheet for "${school.name}": ${err.message}`);
+    } finally {
+      setSheetLoading(prev => ({ ...prev, [school.id]: null }));
+    }
+  };
+
+  const createOthersSheet = async () => {
+    setSheetLoading(prev => ({ ...prev, others: 'create' }));
+    try {
+      const token = await getSessionToken();
+      const res = await fetch('/api/sheets-create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ type: 'others' })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed');
+      setOthersSheetId(data.sheetId);
+      alert('Others Sheet created and shared with your Gmail!');
+    } catch (err) {
+      console.error('Create others sheet failed:', err);
+      alert(`Could not create Others Sheet: ${err.message}`);
+    } finally {
+      setSheetLoading(prev => ({ ...prev, others: null }));
+    }
+  };
+
+  const syncSheetPush = async (school) => {
+    setSheetLoading(prev => ({ ...prev, [school.id]: 'push' }));
+    try {
+      const token = await getSessionToken();
+      const res = await fetch('/api/sheets-sync-push', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ sheetId: school.sheet_id, schoolName: school.name })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed');
+      alert(`Exported ${data.synced} captured payment(s) to Google Sheet.`);
+    } catch (err) {
+      console.error('Sync push failed:', err);
+      alert(`Export failed: ${err.message}`);
+    } finally {
+      setSheetLoading(prev => ({ ...prev, [school.id]: null }));
+    }
+  };
+
+  const syncOthersSheetPush = async () => {
+    setSheetLoading(prev => ({ ...prev, others: 'push' }));
+    try {
+      const token = await getSessionToken();
+      const res = await fetch('/api/sheets-sync-push', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ sheetId: othersSheetId, type: 'others' })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed');
+      alert(`Exported ${data.synced} captured payment(s) to Others Sheet.`);
+    } catch (err) {
+      console.error('Sync push others failed:', err);
+      alert(`Export failed: ${err.message}`);
+    } finally {
+      setSheetLoading(prev => ({ ...prev, others: null }));
+    }
+  };
+
+  const syncSheetPull = async (school) => {
+    if (!confirm('This will overwrite Book Given values in the portal with values from the Google Sheet. Continue?')) return;
+    setSheetLoading(prev => ({ ...prev, [school.id]: 'pull' }));
+    try {
+      const token = await getSessionToken();
+      const res = await fetch('/api/sheets-sync-pull', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ sheetId: school.sheet_id })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed');
+      alert(`Synced Book Given for ${data.updated} record(s) from Google Sheet.`);
+      loadPayments();
+    } catch (err) {
+      console.error('Sync pull failed:', err);
+      alert(`Sync failed: ${err.message}`);
+    } finally {
+      setSheetLoading(prev => ({ ...prev, [school.id]: null }));
+    }
+  };
+
+  const syncOthersSheetPull = async () => {
+    if (!confirm('This will overwrite Book Given values in the portal with values from the Others Sheet. Continue?')) return;
+    setSheetLoading(prev => ({ ...prev, others: 'pull' }));
+    try {
+      const token = await getSessionToken();
+      const res = await fetch('/api/sheets-sync-pull', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ sheetId: othersSheetId, type: 'others' })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed');
+      alert(`Synced Book Given for ${data.updated} record(s) from Others Sheet.`);
+      loadPayments();
+    } catch (err) {
+      console.error('Sync pull others failed:', err);
+      alert(`Sync failed: ${err.message}`);
+    } finally {
+      setSheetLoading(prev => ({ ...prev, others: null }));
     }
   };
 
@@ -1058,28 +1205,94 @@ function App() {
                       </div>
                     </div>
                   ) : (
-                    <div className="flex justify-between items-start gap-4">
-                      <div className="min-w-0">
-                        <h3 className="font-semibold text-gray-900 truncate">{school.name}</h3>
-                        <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-1">
-                          <span className="text-xs text-gray-400">{school.city}</span>
-                          <span className="text-xs text-gray-400">by {school.devotee}</span>
+                    <div className="flex flex-col gap-2">
+                      <div className="flex justify-between items-start gap-4">
+                        <div className="min-w-0">
+                          <h3 className="font-semibold text-gray-900 truncate">{school.name}</h3>
+                          <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-1">
+                            <span className="text-xs text-gray-400">{school.city}</span>
+                            <span className="text-xs text-gray-400">by {school.devotee}</span>
+                          </div>
+                        </div>
+                        <div className="flex gap-2 shrink-0">
+                          <button onClick={() => setEditingSchool(school)}
+                            className="p-2 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-xl transition-colors">
+                            <Edit2 size={16} />
+                          </button>
+                          <button onClick={() => deleteSchoolFromDb(school.id)}
+                            className="p-2 bg-red-50 text-red-500 hover:bg-red-100 rounded-xl transition-colors">
+                            <Trash2 size={16} />
+                          </button>
                         </div>
                       </div>
-                      <div className="flex gap-2 shrink-0">
-                        <button onClick={() => setEditingSchool(school)}
-                          className="p-2 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-xl transition-colors">
-                          <Edit2 size={16} />
-                        </button>
-                        <button onClick={() => deleteSchoolFromDb(school.id)}
-                          className="p-2 bg-red-50 text-red-500 hover:bg-red-100 rounded-xl transition-colors">
-                          <Trash2 size={16} />
-                        </button>
+                      <div className="flex flex-wrap gap-2">
+                        {school.sheet_id ? (
+                          <>
+                            <a href={`https://docs.google.com/spreadsheets/d/${school.sheet_id}/edit`} target="_blank" rel="noreferrer"
+                              className="flex items-center gap-1.5 text-xs text-green-700 bg-green-50 hover:bg-green-100 px-3 py-1.5 rounded-lg border border-green-200 transition-all font-medium">
+                              <ExternalLink size={12} /> Open Sheet
+                            </a>
+                            <button onClick={() => syncSheetPush(school)} disabled={!!sheetLoading[school.id]}
+                              className="flex items-center gap-1.5 text-xs bg-emerald-500 hover:bg-emerald-600 disabled:bg-gray-200 disabled:text-gray-400 text-white px-3 py-1.5 rounded-lg font-semibold transition-all">
+                              {sheetLoading[school.id] === 'push' ? <Loader2 size={12} className="animate-spin" /> : <FileSpreadsheet size={12} />}
+                              Export to GSheet
+                            </button>
+                            <button onClick={() => syncSheetPull(school)} disabled={!!sheetLoading[school.id]}
+                              className="flex items-center gap-1.5 text-xs bg-blue-500 hover:bg-blue-600 disabled:bg-gray-200 disabled:text-gray-400 text-white px-3 py-1.5 rounded-lg font-semibold transition-all">
+                              {sheetLoading[school.id] === 'pull' ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+                              Sync from Sheet
+                            </button>
+                          </>
+                        ) : (
+                          <button onClick={() => createSchoolSheet(school)} disabled={sheetLoading[school.id] === 'create'}
+                            className="flex items-center gap-1.5 text-xs bg-gray-100 hover:bg-gray-200 disabled:text-gray-400 text-gray-600 px-3 py-1.5 rounded-lg font-semibold transition-all">
+                            {sheetLoading[school.id] === 'create' ? <Loader2 size={12} className="animate-spin" /> : <FileSpreadsheet size={12} />}
+                            Create Google Sheet
+                          </button>
+                        )}
                       </div>
                     </div>
                   )}
                 </div>
               ))}
+            </div>
+          </div>
+
+          {/* Others Sheet */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+            <div className="flex justify-between items-center px-6 py-5 border-b border-gray-100">
+              <div>
+                <h2 className="text-lg font-bold text-gray-900">Others Sheet</h2>
+                <p className="text-sm text-gray-400 mt-0.5">Google Sheet for college, working, other — and school registrants not in the list above</p>
+              </div>
+              {othersSheetId && (
+                <a href={`https://docs.google.com/spreadsheets/d/${othersSheetId}/edit`} target="_blank" rel="noreferrer"
+                  className="flex items-center gap-2 text-sm text-green-700 bg-green-50 hover:bg-green-100 px-3 py-2 rounded-xl border border-green-200 transition-all font-medium">
+                  <ExternalLink size={14} /> Open Sheet
+                </a>
+              )}
+            </div>
+            <div className="px-6 py-5 flex flex-wrap gap-3">
+              {!othersSheetId ? (
+                <button onClick={createOthersSheet} disabled={sheetLoading['others'] === 'create'}
+                  className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-200 disabled:text-gray-400 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-all">
+                  {sheetLoading['others'] === 'create' ? <Loader2 size={15} className="animate-spin" /> : <FileSpreadsheet size={15} />}
+                  Create Others Sheet
+                </button>
+              ) : (
+                <>
+                  <button onClick={syncOthersSheetPush} disabled={!!sheetLoading['others']}
+                    className="flex items-center gap-2 bg-emerald-500 hover:bg-emerald-600 disabled:bg-gray-200 disabled:text-gray-400 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-all">
+                    {sheetLoading['others'] === 'push' ? <Loader2 size={15} className="animate-spin" /> : <FileSpreadsheet size={15} />}
+                    Export to GSheet
+                  </button>
+                  <button onClick={syncOthersSheetPull} disabled={!!sheetLoading['others']}
+                    className="flex items-center gap-2 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-200 disabled:text-gray-400 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-all">
+                    {sheetLoading['others'] === 'pull' ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
+                    Sync from Sheet
+                  </button>
+                </>
+              )}
             </div>
           </div>
 
