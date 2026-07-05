@@ -434,6 +434,89 @@ function App() {
     }
   };
 
+  const bulkExportSheets = async () => {
+    const schoolsWithSheet = schools.filter(s => s.sheet_id);
+    const targets = schoolsWithSheet.length + (othersSheetId ? 1 : 0);
+    if (targets === 0) { alert('No sheets found. Create school sheets (and the Others sheet) first.'); return; }
+    if (!confirm(`Export captured payments to all ${targets} sheet(s)? New records are appended to each.`)) return;
+
+    setSheetLoading(prev => ({ ...prev, bulk: 'push' }));
+    try {
+      const token = await getSessionToken();
+      let totalAdded = 0;
+      const failures = [];
+
+      const pushOne = async (body, label) => {
+        try {
+          const res = await fetch('/api/sheets-sync-push', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify(body)
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || 'Failed');
+          totalAdded += data.added || 0;
+        } catch (err) {
+          console.error(`Bulk export failed for ${label}:`, err);
+          failures.push(label);
+        }
+      };
+
+      for (const school of schoolsWithSheet) {
+        await pushOne({ sheetId: school.sheet_id, schoolName: school.name }, school.name);
+      }
+      if (othersSheetId) await pushOne({ sheetId: othersSheetId, type: 'others' }, 'Others');
+
+      let msg = `Bulk export complete. Added ${totalAdded} new record(s) across ${targets} sheet(s).`;
+      if (failures.length) msg += `\n\nFailed for: ${failures.join(', ')}`;
+      alert(msg);
+    } finally {
+      setSheetLoading(prev => ({ ...prev, bulk: null }));
+    }
+  };
+
+  const bulkPullSheets = async () => {
+    const schoolsWithSheet = schools.filter(s => s.sheet_id);
+    const targets = schoolsWithSheet.length + (othersSheetId ? 1 : 0);
+    if (targets === 0) { alert('No sheets found. Create school sheets (and the Others sheet) first.'); return; }
+    if (!confirm(`Sync Book Given from all ${targets} sheet(s) into the portal? Portal values are overwritten with sheet values.`)) return;
+
+    setSheetLoading(prev => ({ ...prev, bulk: 'pull' }));
+    try {
+      const token = await getSessionToken();
+      let totalUpdated = 0;
+      const failures = [];
+
+      const pullOne = async (body, label) => {
+        try {
+          const res = await fetch('/api/sheets-sync-pull', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify(body)
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || 'Failed');
+          totalUpdated += data.updated || 0;
+        } catch (err) {
+          console.error(`Bulk sync failed for ${label}:`, err);
+          failures.push(label);
+        }
+      };
+
+      for (const school of schoolsWithSheet) {
+        await pullOne({ sheetId: school.sheet_id }, school.name);
+      }
+      if (othersSheetId) await pullOne({ sheetId: othersSheetId, type: 'others' }, 'Others');
+
+      loadPayments();
+      let msg = `Bulk sync complete. Updated Book Given for ${totalUpdated} record(s) across ${targets} sheet(s).`;
+      if (failures.length) msg += `\n\nFailed for: ${failures.join(', ')}`;
+      alert(msg);
+    } finally {
+      setSheetLoading(prev => ({ ...prev, bulk: null }));
+    }
+  };
+
   // ── College CRUD ──────────────────────────────────────────────
 
   const addCollegeToDb = async () => {
@@ -1141,11 +1224,25 @@ function App() {
                 <h2 className="text-lg font-bold text-gray-900">Schools Management</h2>
                 <p className="text-sm text-gray-400 mt-0.5">{schools.length} schools</p>
               </div>
-              <button onClick={() => setShowAddSchool(!showAddSchool)}
-                className="flex items-center gap-2 bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-all">
-                <Plus size={16} />
-                Add School
-              </button>
+              <div className="flex flex-wrap gap-2">
+                <button onClick={bulkExportSheets} disabled={!!sheetLoading['bulk']}
+                  title="Export captured payments to every school sheet and the Others sheet"
+                  className="flex items-center gap-2 bg-emerald-500 hover:bg-emerald-600 disabled:bg-gray-200 disabled:text-gray-400 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-all">
+                  {sheetLoading['bulk'] === 'push' ? <Loader2 size={16} className="animate-spin" /> : <FileSpreadsheet size={16} />}
+                  Export All to Sheets
+                </button>
+                <button onClick={bulkPullSheets} disabled={!!sheetLoading['bulk']}
+                  title="Sync Book Given from every school sheet and the Others sheet into the portal"
+                  className="flex items-center gap-2 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-200 disabled:text-gray-400 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-all">
+                  {sheetLoading['bulk'] === 'pull' ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
+                  Sync All from Sheets
+                </button>
+                <button onClick={() => setShowAddSchool(!showAddSchool)}
+                  className="flex items-center gap-2 bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-all">
+                  <Plus size={16} />
+                  Add School
+                </button>
+              </div>
             </div>
 
             {showAddSchool && (
