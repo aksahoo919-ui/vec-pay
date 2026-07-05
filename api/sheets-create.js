@@ -30,15 +30,7 @@ export default async function handler(req, res) {
     });
     const sheet = await createRes.json();
     if (!sheet.spreadsheetId) {
-      // Ask Google what scopes are actually on this token, to settle whether
-      // this is a scope problem or a file-creation-permission problem.
-      let tokenScopes = 'unknown';
-      try {
-        const ti = await fetch(`https://oauth2.googleapis.com/tokeninfo?access_token=${token}`);
-        const tiData = await ti.json();
-        tokenScopes = tiData.scope || JSON.stringify(tiData);
-      } catch { /* ignore */ }
-      throw new Error(`Sheet creation failed (HTTP ${createRes.status}): ${JSON.stringify(sheet)} | token scopes: ${tokenScopes}`);
+      throw new Error(`Sheet creation failed (HTTP ${createRes.status}): ${JSON.stringify(sheet)}`);
     }
     const sheetId = sheet.spreadsheetId;
 
@@ -53,12 +45,7 @@ export default async function handler(req, res) {
       body: JSON.stringify({ values: headers })
     });
 
-    // Make the sheet accessible to anyone with the link (writer)
-    await fetch(`https://www.googleapis.com/drive/v3/files/${sheetId}/permissions`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ role: 'writer', type: 'anyone' })
-    });
+    // The sheet is owned by the OAuth account's own Drive — no extra sharing needed.
 
     // Store the sheet ID in Supabase
     if (isOthers) {
