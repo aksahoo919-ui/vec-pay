@@ -29,7 +29,10 @@ export default async function handler(req, res) {
       body: JSON.stringify({ properties: { title } })
     });
     const sheet = await createRes.json();
-    if (!sheet.spreadsheetId) throw new Error('Sheet creation failed: ' + JSON.stringify(sheet));
+    if (!sheet.spreadsheetId) {
+      const sa = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
+      throw new Error(`Sheet creation failed (HTTP ${createRes.status}) using service account ${sa.client_email}: ${JSON.stringify(sheet)}`);
+    }
     const sheetId = sheet.spreadsheetId;
 
     // Write header row
