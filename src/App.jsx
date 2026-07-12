@@ -92,16 +92,16 @@ function App() {
     return true;
   }, [formData, otherSchoolName, otherCollegeName, childParticipates, childName, childSchool, childOtherSchoolName, childSection]);
 
-  // Inject Razorpay script after save (form must be visible for it to initialize correctly)
+  // Load Razorpay script on mount — form is always visible so it initialises correctly
   useEffect(() => {
-    if (!registrationSaved || !razorpayFormRef.current) return;
+    if (!razorpayFormRef.current) return;
     if (razorpayFormRef.current.children.length > 0) return;
     const script = document.createElement('script');
     script.src = 'https://checkout.razorpay.com/v1/payment-button.js';
     script.setAttribute('data-payment_button_id', RZP_BUTTON_ID);
     script.async = true;
     razorpayFormRef.current.appendChild(script);
-  }, [registrationSaved]);
+  }, []);
 
   // Clear error automatically once the form becomes complete
   useEffect(() => {
@@ -800,6 +800,11 @@ function App() {
     setIsSubmitting(true);
     await handleSubmit();
     setIsSubmitting(false);
+    // Overlay is removed after registrationSaved; give React one tick to re-render
+    setTimeout(() => {
+      const rzpBtn = razorpayFormRef.current?.querySelector('button');
+      if (rzpBtn) rzpBtn.click();
+    }, 150);
   };
 
   // ── Auth ──────────────────────────────────────────────────────
@@ -1888,37 +1893,44 @@ function App() {
               </div>
             )}
 
-            {!registrationSaved ? (
-              <div className="mt-2 space-y-2">
-                <button
+            {/* Razorpay button with overlay for validation + submit */}
+            <div className="relative mt-2">
+              <div
+                className="flex justify-center py-1"
+                style={{
+                  filter: (!registrationSaved && !isFormComplete) ? 'grayscale(0.9) opacity(0.45)' : 'none',
+                  transition: 'filter 0.3s ease'
+                }}
+              >
+                <form ref={razorpayFormRef}></form>
+              </div>
+
+              {/* Invisible overlay — intercepts clicks until form is saved */}
+              {!registrationSaved && (
+                <div
+                  className="absolute inset-0"
+                  style={{ cursor: isSubmitting ? 'wait' : (isFormComplete ? 'pointer' : 'not-allowed') }}
                   onClick={handlePayClick}
-                  disabled={isSubmitting}
-                  className={`w-full py-4 rounded-2xl font-bold text-white text-lg transition-all ${
-                    isFormComplete && !isSubmitting ? 'active:scale-[0.98] cursor-pointer' : 'cursor-not-allowed opacity-60'
-                  }`}
-                  style={isFormComplete && !isSubmitting
-                    ? { background: 'linear-gradient(135deg, #ea580c, #dc2626)', boxShadow: '0 8px 24px rgba(234,88,12,0.4)' }
-                    : { background: 'linear-gradient(135deg, #9ca3af, #6b7280)' }
-                  }
-                >
-                  {isSubmitting ? 'Saving details...' : `Pay ₹${PAYMENT_AMOUNT}`}
-                </button>
-                {payError && (
-                  <p className="text-red-500 text-sm text-center font-medium">{payError}</p>
-                )}
-              </div>
-            ) : (
-              <div className="mt-2 space-y-3">
-                <div className="bg-green-50 border border-green-200 rounded-xl p-3 text-center">
-                  <p className="text-green-700 font-semibold text-sm">✓ Details saved! Complete your payment below</p>
+                />
+              )}
+
+              {/* Loading indicator during DB save */}
+              {isSubmitting && (
+                <div className="absolute inset-0 flex items-center justify-center rounded-xl" style={{ background: 'rgba(0,0,0,0.15)' }}>
+                  <Loader2 className="animate-spin text-white w-5 h-5" />
                 </div>
-              </div>
+              )}
+            </div>
+
+            {payError && (
+              <p className="text-red-500 text-sm text-center font-medium mt-1">{payError}</p>
             )}
 
-            {/* Razorpay form: always in DOM (pre-loaded on mount), revealed after save */}
-            <div style={{ display: registrationSaved ? 'flex' : 'none' }} className="justify-center py-1">
-              <form ref={razorpayFormRef}></form>
-            </div>
+            {registrationSaved && (
+              <div className="bg-green-50 border border-green-200 rounded-xl p-3 text-center mt-2">
+                <p className="text-green-700 font-semibold text-sm">✓ Details saved! Click the button above to pay</p>
+              </div>
+            )}
 
             <p className="text-center text-xs text-gray-400 pb-1">🔒 Secured by Razorpay · All payments are final</p>
           </div>
