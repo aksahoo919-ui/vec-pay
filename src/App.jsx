@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { User, LogOut, Plus, Edit2, Trash2, Save, X, Download, ExternalLink, FileSpreadsheet, RefreshCw, Loader2 } from 'lucide-react';
 import { supabase } from './config/supabase';
 
@@ -67,16 +67,46 @@ function App() {
   // Payment button
   const razorpayFormRef = useRef(null);
   const [registrationSaved, setRegistrationSaved] = useState(false);
+  const [payError, setPayError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const isFormComplete = useMemo(() => {
+    if (!formData.name || !formData.currentStatus || !formData.mobile || !formData.language) return false;
+    if (formData.currentStatus === 'school') {
+      if (!formData.school) return false;
+      if (formData.school === 'Other' && !otherSchoolName.trim()) return false;
+      if (!formData.class) return false;
+    } else if (formData.currentStatus === 'college') {
+      if (!formData.college) return false;
+      if (formData.college === 'Other' && !otherCollegeName.trim()) return false;
+      if (!formData.branch.trim()) return false;
+    } else if (formData.currentStatus === 'working') {
+      if (!formData.companyName.trim()) return false;
+    }
+    if (['working', 'other'].includes(formData.currentStatus) && childParticipates === 'yes') {
+      if (!childName.trim()) return false;
+      if (!childSchool) return false;
+      if (childSchool === 'Other' && !childOtherSchoolName.trim()) return false;
+      if (!childSection.trim()) return false;
+    }
+    return true;
+  }, [formData, otherSchoolName, otherCollegeName, childParticipates, childName, childSchool, childOtherSchoolName, childSection]);
+
+  // Pre-load Razorpay script on mount so the button is ready immediately after save
   useEffect(() => {
-    if (!registrationSaved || !razorpayFormRef.current) return;
+    if (!razorpayFormRef.current) return;
     if (razorpayFormRef.current.children.length > 0) return;
     const script = document.createElement('script');
     script.src = 'https://checkout.razorpay.com/v1/payment-button.js';
     script.setAttribute('data-payment_button_id', RZP_BUTTON_ID);
     script.async = true;
     razorpayFormRef.current.appendChild(script);
-  }, [registrationSaved]);
+  }, []);
+
+  // Clear error automatically once the form becomes complete
+  useEffect(() => {
+    if (payError && isFormComplete) setPayError('');
+  }, [isFormComplete, payError]);
 
   useEffect(() => {
     loadCities();
@@ -759,6 +789,17 @@ function App() {
     }
 
     setRegistrationSaved(true);
+  };
+
+  const handlePayClick = async () => {
+    if (!isFormComplete) {
+      setPayError('Please fill in all the details before proceeding.');
+      return;
+    }
+    setPayError('');
+    setIsSubmitting(true);
+    await handleSubmit();
+    setIsSubmitting(false);
   };
 
   // ── Auth ──────────────────────────────────────────────────────
@@ -1848,21 +1889,36 @@ function App() {
             )}
 
             {!registrationSaved ? (
-              <button onClick={handleSubmit}
-                className="w-full py-4 rounded-2xl font-bold text-white text-lg transition-all active:scale-[0.98] mt-2"
-                style={{ background: 'linear-gradient(135deg, #ea580c, #dc2626)', boxShadow: '0 8px 24px rgba(234,88,12,0.4)' }}>
-                Submit
-              </button>
+              <div className="mt-2 space-y-2">
+                <button
+                  onClick={handlePayClick}
+                  disabled={isSubmitting}
+                  className={`w-full py-4 rounded-2xl font-bold text-white text-lg transition-all ${
+                    isFormComplete && !isSubmitting ? 'active:scale-[0.98] cursor-pointer' : 'cursor-not-allowed opacity-60'
+                  }`}
+                  style={isFormComplete && !isSubmitting
+                    ? { background: 'linear-gradient(135deg, #ea580c, #dc2626)', boxShadow: '0 8px 24px rgba(234,88,12,0.4)' }
+                    : { background: 'linear-gradient(135deg, #9ca3af, #6b7280)' }
+                  }
+                >
+                  {isSubmitting ? 'Saving details...' : `Pay ₹${PAYMENT_AMOUNT}`}
+                </button>
+                {payError && (
+                  <p className="text-red-500 text-sm text-center font-medium">{payError}</p>
+                )}
+              </div>
             ) : (
               <div className="mt-2 space-y-3">
                 <div className="bg-green-50 border border-green-200 rounded-xl p-3 text-center">
                   <p className="text-green-700 font-semibold text-sm">✓ Details saved! Complete your payment below</p>
                 </div>
-                <div className="flex justify-center py-1">
-                  <form ref={razorpayFormRef}></form>
-                </div>
               </div>
             )}
+
+            {/* Razorpay form: always in DOM (pre-loaded on mount), revealed after save */}
+            <div style={{ display: registrationSaved ? 'flex' : 'none' }} className="justify-center py-1">
+              <form ref={razorpayFormRef}></form>
+            </div>
 
             <p className="text-center text-xs text-gray-400 pb-1">🔒 Secured by Razorpay · All payments are final</p>
           </div>
