@@ -92,16 +92,16 @@ function App() {
     return true;
   }, [formData, otherSchoolName, otherCollegeName, childParticipates, childName, childSchool, childOtherSchoolName, childSection]);
 
-  // Pre-load Razorpay script on mount so the button is ready immediately after save
+  // Inject Razorpay script after save (form must be visible for it to initialize correctly)
   useEffect(() => {
-    if (!razorpayFormRef.current) return;
+    if (!registrationSaved || !razorpayFormRef.current) return;
     if (razorpayFormRef.current.children.length > 0) return;
     const script = document.createElement('script');
     script.src = 'https://checkout.razorpay.com/v1/payment-button.js';
     script.setAttribute('data-payment_button_id', RZP_BUTTON_ID);
     script.async = true;
     razorpayFormRef.current.appendChild(script);
-  }, []);
+  }, [registrationSaved]);
 
   // Clear error automatically once the form becomes complete
   useEffect(() => {
