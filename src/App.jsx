@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { User, LogOut, Plus, Edit2, Trash2, Save, X, Download, ExternalLink, FileSpreadsheet, RefreshCw, Loader2 } from 'lucide-react';
+import { User, LogOut, Plus, Edit2, Trash2, Save, X, Download, ExternalLink, FileSpreadsheet, RefreshCw, Loader2, ChevronDown } from 'lucide-react';
 import { supabase } from './config/supabase';
 
 const PAYMENT_AMOUNT = 30;
@@ -63,6 +63,8 @@ function App() {
   const [selectedSchoolFilter, setSelectedSchoolFilter] = useState('');
   const [selectedBookFilter, setSelectedBookFilter] = useState('');
   const [capturedSearch, setCapturedSearch] = useState('');
+  const [capturedExpanded, setCapturedExpanded] = useState(true);
+  const [nonCapturedExpanded, setNonCapturedExpanded] = useState(true);
 
   const [sheetLoading, setSheetLoading] = useState({});
   const [othersSheetId, setOthersSheetId] = useState('');
@@ -1096,24 +1098,30 @@ function App() {
 
             {/* Captured Payments */}
             <div className="px-6 pt-5 pb-3 flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
+              <button
+                onClick={() => setCapturedExpanded(v => !v)}
+                className="flex items-center gap-2 hover:opacity-70 transition-opacity"
+              >
                 <span className="w-2.5 h-2.5 rounded-full bg-green-500" />
                 <h3 className="text-sm font-bold text-gray-700">Captured Payments</h3>
                 <span className="text-xs text-gray-400">({getCapturedPayments().length})</span>
-              </div>
-              <div className="relative min-w-[220px]">
-                <input type="text" placeholder="Search by name or phone…" value={capturedSearch}
-                  onChange={(e) => setCapturedSearch(e.target.value)}
-                  className="w-full border border-gray-200 rounded-xl pl-3 pr-8 py-2 text-sm bg-white focus:border-orange-400 outline-none" />
-                {capturedSearch && (
-                  <button onClick={() => setCapturedSearch('')}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
-                    <X size={14} />
-                  </button>
-                )}
-              </div>
+                <ChevronDown size={15} className={`text-gray-400 transition-transform duration-200 ${capturedExpanded ? '' : '-rotate-90'}`} />
+              </button>
+              {capturedExpanded && (
+                <div className="relative min-w-[220px]">
+                  <input type="text" placeholder="Search by name or phone…" value={capturedSearch}
+                    onChange={(e) => setCapturedSearch(e.target.value)}
+                    className="w-full border border-gray-200 rounded-xl pl-3 pr-8 py-2 text-sm bg-white focus:border-orange-400 outline-none" />
+                  {capturedSearch && (
+                    <button onClick={() => setCapturedSearch('')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
-            <div className="overflow-x-auto">
+            {capturedExpanded && <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider">
@@ -1167,15 +1175,19 @@ function App() {
                   )}
                 </tbody>
               </table>
-            </div>
+            </div>}
 
             {/* Non-Captured Payments */}
-            <div className="px-6 pt-6 pb-2 flex items-center gap-2 border-t border-gray-100 mt-2">
+            <div
+              className="px-6 pt-6 pb-2 flex items-center gap-2 border-t border-gray-100 mt-2 cursor-pointer hover:opacity-70 transition-opacity"
+              onClick={() => setNonCapturedExpanded(v => !v)}
+            >
               <span className="w-2.5 h-2.5 rounded-full bg-amber-400" />
               <h3 className="text-sm font-bold text-gray-700">Non-Captured Payments</h3>
               <span className="text-xs text-gray-400">({getNonCapturedPayments().length})</span>
+              <ChevronDown size={15} className={`text-gray-400 transition-transform duration-200 ${nonCapturedExpanded ? '' : '-rotate-90'}`} />
             </div>
-            <div className="overflow-x-auto">
+            {nonCapturedExpanded && <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider">
@@ -1219,7 +1231,7 @@ function App() {
                   )}
                 </tbody>
               </table>
-            </div>
+            </div>}
           </div>
 
           {/* City Management */}
