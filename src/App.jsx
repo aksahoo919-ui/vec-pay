@@ -4,13 +4,21 @@ import { supabase } from './config/supabase';
 
 const PAYMENT_AMOUNT = 30;
 
-const loadCheckoutScript = () => new Promise((resolve) => {
-  if (window.Razorpay) { resolve(); return; }
-  const s = document.createElement('script');
-  s.src = 'https://checkout.razorpay.com/v1/checkout.js';
-  s.onload = resolve;
-  document.head.appendChild(s);
-});
+// Single shared promise so mount-preload and click-time never inject twice.
+// Resolves true on success, false on failure (so callers can recover instead of hang).
+let checkoutScriptPromise = null;
+const loadCheckoutScript = () => {
+  if (window.Razorpay) return Promise.resolve(true);
+  if (checkoutScriptPromise) return checkoutScriptPromise;
+  checkoutScriptPromise = new Promise((resolve) => {
+    const s = document.createElement('script');
+    s.src = 'https://checkout.razorpay.com/v1/checkout.js';
+    s.onload = () => resolve(true);
+    s.onerror = () => { checkoutScriptPromise = null; resolve(false); }; // allow retry on next click
+    document.head.appendChild(s);
+  });
+  return checkoutScriptPromise;
+};
 
 function App() {
   const [isAdmin, setIsAdmin] = useState(false);
@@ -105,6 +113,11 @@ function App() {
   useEffect(() => {
     if (payError && isFormComplete) setPayError('');
   }, [isFormComplete, payError]);
+
+  // Preload the Razorpay checkout script in the background so the modal opens instantly
+  useEffect(() => {
+    loadCheckoutScript();
+  }, []);
 
   useEffect(() => {
     loadCities();
@@ -809,41 +822,54 @@ function App() {
     setPayError('');
     setIsSubmitting(true);
 
-    // Save to DB on first attempt; skip if already saved (e.g. user re-opened modal)
-    if (!registrationSaved) {
-      const saved = await handleSubmit();
-      if (!saved) {
-        setPayError('Failed to save registration. Please try again.');
-        setIsSubmitting(false);
-        return;
+    // Order fetch with a timeout so a dead/flaky connection can't stall indefinitely
+    const createOrder = async () => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 20000);
+      try {
+        const res = await fetch('/api/razorpay-create-order', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ amount: PAYMENT_AMOUNT * 100 }),
+          signal: controller.signal
+        });
+        return await res.json();
+      } catch {
+        return null;
+      } finally {
+        clearTimeout(timer);
       }
-      setRegistrationSaved(true);
-    }
+    };
 
-    // Create a Razorpay order server-side
-    let orderId;
-    try {
-      const res = await fetch('/api/razorpay-create-order', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount: PAYMENT_AMOUNT * 100 })
-      });
-      const data = await res.json();
-      if (!data.orderId) throw new Error(data.error || 'Order creation failed');
-      orderId = data.orderId;
-    } catch (err) {
-      setPayError('Could not start payment. Please try again.');
+    // Run the DB save (if not already done) and order creation in parallel — they're independent
+    const savePromise = registrationSaved ? Promise.resolve(true) : handleSubmit();
+    const [saved, orderData] = await Promise.all([savePromise, createOrder()]);
+
+    if (!saved) {
+      setPayError('Failed to save registration. Please check your connection and try again.');
+      setIsSubmitting(false);
+      return;
+    }
+    setRegistrationSaved(true);
+
+    if (!orderData?.orderId) {
+      setPayError('Could not start payment. Please check your connection and try again.');
       setIsSubmitting(false);
       return;
     }
 
-    // Load Razorpay checkout script and open the modal
-    await loadCheckoutScript();
+    // Script is preloaded on mount; on a slow connection this awaits the same in-flight load
+    const scriptLoaded = await loadCheckoutScript();
+    if (!scriptLoaded) {
+      setPayError('Payment could not load. Please check your connection and try again.');
+      setIsSubmitting(false);
+      return;
+    }
     setIsSubmitting(false);
 
     const rzp = new window.Razorpay({
       key: import.meta.env.VITE_RAZORPAY_KEY_ID,
-      order_id: orderId,
+      order_id: orderData.orderId,
       amount: PAYMENT_AMOUNT * 100,
       currency: 'INR',
       name: 'ŚREṢṬHA Contest',
