@@ -545,6 +545,26 @@ function App() {
     }
   };
 
+  const makeAllSheetsPublic = async () => {
+    if (!confirm('Make all existing Google Sheets publicly viewable (anyone with the link)? This cannot be undone.')) return;
+    setSheetLoading(prev => ({ ...prev, makePublic: true }));
+    try {
+      const session = await supabase.auth.getSession();
+      const token = session.data.session?.access_token;
+      const res = await fetch('/api/sheets-make-public', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      alert(`Done! ${data.succeeded} of ${data.total} sheet(s) are now public.${data.failed ? `\n${data.failed} failed.` : ''}`);
+    } catch (err) {
+      alert(`Error: ${err.message}`);
+    } finally {
+      setSheetLoading(prev => ({ ...prev, makePublic: false }));
+    }
+  };
+
   // ── College CRUD ──────────────────────────────────────────────
 
   const addCollegeToDb = async () => {
@@ -1321,6 +1341,12 @@ function App() {
                   className="flex items-center gap-2 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-200 disabled:text-gray-400 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-all">
                   {sheetLoading['bulk'] === 'pull' ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
                   Sync All from Sheets
+                </button>
+                <button onClick={makeAllSheetsPublic} disabled={!!sheetLoading['makePublic']}
+                  title="Make all existing Google Sheets publicly viewable by anyone with the link"
+                  className="flex items-center gap-2 bg-violet-500 hover:bg-violet-600 disabled:bg-gray-200 disabled:text-gray-400 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-all">
+                  {sheetLoading['makePublic'] ? <Loader2 size={16} className="animate-spin" /> : <ExternalLink size={16} />}
+                  Make All Sheets Public
                 </button>
                 <button onClick={() => setShowAddSchool(!showAddSchool)}
                   className="flex items-center gap-2 bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-all">
