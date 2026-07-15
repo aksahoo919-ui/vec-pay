@@ -1,9 +1,16 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { User, LogOut, Plus, Edit2, Trash2, Save, X, Download, ExternalLink, FileSpreadsheet, RefreshCw, Loader2 } from 'lucide-react';
 import { supabase } from './config/supabase';
 
 const PAYMENT_AMOUNT = 30;
-const RZP_BUTTON_ID = 'pl_T1R8ZMGQxzl7p7';
+
+const loadCheckoutScript = () => new Promise((resolve) => {
+  if (window.Razorpay) { resolve(); return; }
+  const s = document.createElement('script');
+  s.src = 'https://checkout.razorpay.com/v1/checkout.js';
+  s.onload = resolve;
+  document.head.appendChild(s);
+});
 
 function App() {
   const [isAdmin, setIsAdmin] = useState(false);
@@ -64,9 +71,9 @@ function App() {
   const [admins, setAdmins] = useState([]);
   const [newAdminEmail, setNewAdminEmail] = useState('');
 
-  // Payment button
-  const razorpayFormRef = useRef(null);
+  // Payment state
   const [registrationSaved, setRegistrationSaved] = useState(false);
+  const [paymentDone, setPaymentDone] = useState(false);
   const [payError, setPayError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -91,17 +98,6 @@ function App() {
     }
     return true;
   }, [formData, otherSchoolName, otherCollegeName, childParticipates, childName, childSchool, childOtherSchoolName, childSection]);
-
-  // Inject Razorpay script after save so the form is visible when the script initialises
-  useEffect(() => {
-    if (!registrationSaved || !razorpayFormRef.current) return;
-    if (razorpayFormRef.current.children.length > 0) return;
-    const script = document.createElement('script');
-    script.src = 'https://checkout.razorpay.com/v1/payment-button.js';
-    script.setAttribute('data-payment_button_id', RZP_BUTTON_ID);
-    script.async = true;
-    razorpayFormRef.current.appendChild(script);
-  }, [registrationSaved]);
 
   // Clear error automatically once the form becomes complete
   useEffect(() => {
@@ -728,37 +724,34 @@ function App() {
   // ── Registration + Payment ────────────────────────────────────
 
   const handleSubmit = async () => {
-    if (!formData.name || !formData.currentStatus || !formData.mobile || !formData.language) {
-      alert('Please fill all required fields');
-      return;
-    }
+    if (!formData.name || !formData.currentStatus || !formData.mobile || !formData.language) return false;
 
     let school = '', cls = '', college = '', branch = '', companyName = '', city = '';
 
     if (formData.currentStatus === 'school') {
-      if (!formData.school) { alert('Please select your school'); return; }
-      if (formData.school === 'Other' && !otherSchoolName.trim()) { alert('Please enter your school name'); return; }
-      if (!formData.class) { alert('Please select your class'); return; }
+      if (!formData.school) return false;
+      if (formData.school === 'Other' && !otherSchoolName.trim()) return false;
+      if (!formData.class) return false;
       school = formData.school === 'Other' ? otherSchoolName.trim() : formData.school;
       cls = formData.class;
       city = formData.school === 'Other' ? '' : (schools.find(s => s.name === formData.school)?.city || '');
     } else if (formData.currentStatus === 'college') {
-      if (!formData.college) { alert('Please select your college'); return; }
-      if (formData.college === 'Other' && !otherCollegeName.trim()) { alert('Please enter your college name'); return; }
-      if (!formData.branch.trim()) { alert('Please enter your branch'); return; }
+      if (!formData.college) return false;
+      if (formData.college === 'Other' && !otherCollegeName.trim()) return false;
+      if (!formData.branch.trim()) return false;
       college = formData.college === 'Other' ? otherCollegeName.trim() : formData.college;
       branch = formData.branch.trim();
       city = formData.college === 'Other' ? '' : (colleges.find(c => c.name === formData.college)?.city || '');
     } else if (formData.currentStatus === 'working') {
-      if (!formData.companyName.trim()) { alert('Please enter your company name'); return; }
+      if (!formData.companyName.trim()) return false;
       companyName = formData.companyName.trim();
     }
 
     if (['working', 'other'].includes(formData.currentStatus) && childParticipates === 'yes') {
-      if (!childName.trim()) { alert("Please enter your child's name"); return; }
-      if (!childSchool) { alert("Please select your child's school"); return; }
-      if (childSchool === 'Other' && !childOtherSchoolName.trim()) { alert("Please enter your child's school name"); return; }
-      if (!childSection.trim()) { alert('Please enter the section'); return; }
+      if (!childName.trim()) return false;
+      if (!childSchool) return false;
+      if (childSchool === 'Other' && !childOtherSchoolName.trim()) return false;
+      if (!childSection.trim()) return false;
     }
 
     const hasChildren = ['working', 'other'].includes(formData.currentStatus) && childParticipates === 'yes';
@@ -783,12 +776,7 @@ function App() {
       childSection: hasChildren ? childSection.trim() : ''
     });
 
-    if (!saved) {
-      alert('Failed to save registration. Please try again.');
-      return;
-    }
-
-    setRegistrationSaved(true);
+    return saved;
   };
 
   const handlePayClick = async () => {
@@ -798,8 +786,52 @@ function App() {
     }
     setPayError('');
     setIsSubmitting(true);
-    await handleSubmit();
+
+    // Save to DB on first attempt; skip if already saved (e.g. user re-opened modal)
+    if (!registrationSaved) {
+      const saved = await handleSubmit();
+      if (!saved) {
+        setPayError('Failed to save registration. Please try again.');
+        setIsSubmitting(false);
+        return;
+      }
+      setRegistrationSaved(true);
+    }
+
+    // Create a Razorpay order server-side
+    let orderId;
+    try {
+      const res = await fetch('/api/razorpay-create-order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount: PAYMENT_AMOUNT * 100 })
+      });
+      const data = await res.json();
+      if (!data.orderId) throw new Error(data.error || 'Order creation failed');
+      orderId = data.orderId;
+    } catch (err) {
+      setPayError('Could not start payment. Please try again.');
+      setIsSubmitting(false);
+      return;
+    }
+
+    // Load Razorpay checkout script and open the modal
+    await loadCheckoutScript();
     setIsSubmitting(false);
+
+    const rzp = new window.Razorpay({
+      key: import.meta.env.VITE_RAZORPAY_KEY_ID,
+      order_id: orderId,
+      amount: PAYMENT_AMOUNT * 100,
+      currency: 'INR',
+      name: 'ŚREṢṬHA Contest',
+      description: `Student Registration · ₹${PAYMENT_AMOUNT}`,
+      prefill: { name: formData.name, contact: formData.mobile },
+      theme: { color: '#ea580c' },
+      handler: () => setPaymentDone(true),
+      modal: { ondismiss: () => {} }
+    });
+    rzp.open();
   };
 
   // ── Auth ──────────────────────────────────────────────────────
@@ -1888,7 +1920,12 @@ function App() {
               </div>
             )}
 
-            {!registrationSaved ? (
+            {paymentDone ? (
+              <div className="mt-2 bg-green-50 border border-green-200 rounded-2xl p-5 text-center space-y-1">
+                <p className="text-green-700 font-bold text-base">Payment successful!</p>
+                <p className="text-green-600 text-sm">Your registration is confirmed. See you at the contest!</p>
+              </div>
+            ) : (
               <div className="mt-2 space-y-2">
                 <button
                   onClick={handlePayClick}
@@ -1902,22 +1939,13 @@ function App() {
                   }
                 >
                   {isSubmitting
-                    ? <span className="flex items-center justify-center gap-2"><Loader2 className="animate-spin w-5 h-5" /> Saving...</span>
-                    : `Submit Details`
+                    ? <span className="flex items-center justify-center gap-2"><Loader2 className="animate-spin w-5 h-5" />Please wait...</span>
+                    : registrationSaved ? 'Complete Payment' : 'Submit Details'
                   }
                 </button>
                 {payError && (
                   <p className="text-red-500 text-sm text-center font-medium">{payError}</p>
                 )}
-              </div>
-            ) : (
-              <div className="mt-2 space-y-3">
-                <div className="bg-green-50 border border-green-200 rounded-xl p-3 text-center">
-                  <p className="text-green-700 font-semibold text-sm">✓ Details saved! Complete your payment below. Please wait for the payment button to appear.</p>
-                </div>
-                <div className="flex justify-center py-1">
-                  <form ref={razorpayFormRef}></form>
-                </div>
               </div>
             )}
 

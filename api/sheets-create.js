@@ -45,7 +45,12 @@ export default async function handler(req, res) {
       body: JSON.stringify({ values: headers })
     });
 
-    // The sheet is owned by the OAuth account's own Drive — no extra sharing needed.
+    // Make the sheet publicly viewable by anyone with the link
+    await fetch(`https://www.googleapis.com/drive/v3/files/${sheetId}/permissions`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'anyone', role: 'reader' })
+    });
 
     // Store the sheet ID in Supabase
     if (isOthers) {
