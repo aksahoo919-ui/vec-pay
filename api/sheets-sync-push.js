@@ -38,15 +38,28 @@ export default async function handler(req, res) {
         p.current_status !== 'school' || !adminSchoolNames.has(p.school)
       );
     } else {
-      const { data, error } = await supabase
+      // Students registered directly for this school
+      const { data: students, error: studentsError } = await supabase
         .from('payments')
         .select('*')
         .eq('status', 'captured')
         .eq('current_status', 'school')
         .eq('school', schoolName)
         .order('timestamp', { ascending: true });
-      if (error) throw error;
-      payments = data || [];
+      if (studentsError) throw studentsError;
+
+      // Parents whose child is in this school
+      const { data: parents, error: parentsError } = await supabase
+        .from('payments')
+        .select('*')
+        .eq('status', 'captured')
+        .eq('has_children', true)
+        .eq('child_school', schoolName)
+        .order('timestamp', { ascending: true });
+      if (parentsError) throw parentsError;
+
+      payments = [...(students || []), ...(parents || [])]
+        .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
     }
 
     // Read existing rows so we only append payments not already in the sheet.
@@ -94,10 +107,11 @@ export default async function handler(req, res) {
             bookGiven
           ];
         } else {
+          const isParent = p.current_status !== 'school';
           return [
-            p.name,
+            isParent ? `${p.name} (Parent of ${p.child_name})` : p.name,
             p.mobile,
-            p.class || '',
+            isParent ? (p.child_section || '') : (p.class || ''),
             p.language || '',
             p.referred_by || '',
             p.payment_id,

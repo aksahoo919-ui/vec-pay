@@ -1886,8 +1886,8 @@ function App() {
                 )}
 
                 <div>
-                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Section</label>
-                  <input type="text" placeholder="Enter section (e.g. A, B, C)" value={childSection}
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Class and Section</label>
+                  <input type="text" placeholder="Enter class and section (e.g. 5-A, 6-B)" value={childSection}
                     onChange={(e) => setChildSection(e.target.value)}
                     className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-orange-400 focus:bg-white outline-none transition-all text-gray-800 placeholder-gray-400" />
                 </div>
