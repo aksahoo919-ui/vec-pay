@@ -1563,6 +1563,8 @@ function App() {
                 <img src="/vec_logo.png" alt="VEC 2027 logo" className="w-full h-full object-contain" />
               </div>
               <h1 className="text-white text-2xl font-bold mb-1">{CONTEST_NAME}</h1>
+              <p className="text-white/95 text-sm font-semibold">Education Contest based on Bhagavad Gita</p>
+              <p className="text-white/90 text-xs font-medium tracking-wide mb-3">ISKCON ABIDS, Hyderabad</p>
               <p className="text-orange-100 text-sm">Student Registration · ₹{PAYMENT_AMOUNT}</p>
               <p className="text-orange-100/80 text-xs mt-1">Includes booklet, study material &amp; calendar</p>
             </div>
