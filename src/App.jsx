@@ -1689,7 +1689,7 @@ function App() {
               <a href="/contact" className="underline hover:text-gray-600">Contact Us</a>
             </p>
             <p className="text-center text-[11px] text-gray-400 pb-1">
-              Organised by International Society for Krishna Consciousness (ISKCON), Hyderabad
+              Organised by ISKCON ABIDS, Hyderabad
             </p>
           </div>
         </div>
