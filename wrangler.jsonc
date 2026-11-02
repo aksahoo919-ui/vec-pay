@@ -18,7 +18,7 @@
       "binding": "DB",
       "database_name": "vec-pay-db",
       // Paste the Database ID from Cloudflare dashboard → Storage & Databases → D1
-      "database_id": "REPLACE_WITH_YOUR_D1_DATABASE_ID",
+      "database_id": "5ba46d55-0db3-4f2d-a0ec-589cf8bc3614",
       "migrations_dir": "migrations"
     }
   ],
