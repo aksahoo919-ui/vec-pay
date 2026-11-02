@@ -94,6 +94,23 @@ Razorpay dashboard → **Settings → Webhooks** → add (or edit) a webhook:
 
 ---
 
+## Public address: srestha-pay.vercel.app
+
+Razorpay only accepts payments from websites approved on the account, and
+`https://srestha-pay.vercel.app` is the approved one. So students use that
+address:
+
+- **Vercel** (project `srestha-pay`, connected to this repo) builds the same
+  website and, through `vercel.json`, forwards every `/api/*` request to the
+  Cloudflare Worker. Vercel needs no environment variables.
+- **Cloudflare** still runs all the server code and the database. The Worker
+  accepts admin requests from `https://srestha-pay.vercel.app` because it is
+  listed in `ALLOWED_ORIGINS` in `wrangler.jsonc`.
+- The Razorpay webhook keeps pointing directly at
+  `https://vec-pay.aksahoo-919.workers.dev/api/razorpay-webhook`.
+
+If the Worker's address ever changes, update the destination in `vercel.json`.
+
 ## How payments work
 
 1. The form sends the details to `POST /api/register`. The Worker validates

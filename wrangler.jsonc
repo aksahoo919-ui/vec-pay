@@ -23,6 +23,13 @@
     }
   ],
 
+  // Front-end addresses allowed to make admin changes, besides this Worker's
+  // own address. srestha-pay.vercel.app (approved on Razorpay) serves the same
+  // site and forwards /api/* here — see vercel.json.
+  "vars": {
+    "ALLOWED_ORIGINS": "https://srestha-pay.vercel.app"
+  },
+
   // Keep variables/secrets set in the Cloudflare dashboard when deploying.
   "keep_vars": true,
 

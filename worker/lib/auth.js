@@ -24,9 +24,15 @@ async function sha256Hex(value) {
   return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-function checkOrigin(request) {
-  // Changes must come from our own pages (extra protection on top of SameSite cookies)
-  if (request.headers.get('Origin') !== new URL(request.url).origin) throw new HttpError(403, 'Forbidden');
+// Changes must come from our own pages (extra protection on top of SameSite
+// cookies): the Worker's own address, or a front-end address listed in
+// ALLOWED_ORIGINS (e.g. the Vercel site that forwards /api/* to this Worker).
+function checkOrigin(request, env) {
+  const allowed = new Set([
+    new URL(request.url).origin,
+    ...String(env.ALLOWED_ORIGINS || '').split(',').map(o => o.trim().replace(/\/+$/, '')).filter(Boolean)
+  ]);
+  if (!allowed.has(request.headers.get('Origin'))) throw new HttpError(403, 'Forbidden');
 }
 
 async function passwordIsCorrect(env, username, password) {
@@ -40,7 +46,7 @@ async function passwordIsCorrect(env, username, password) {
 
 // POST /api/auth/login  { username, password }
 export async function login(request, env) {
-  checkOrigin(request);
+  checkOrigin(request, env);
   const body = await readJson(request);
   const username = String(body.username || '').trim().toLowerCase();
   const password = String(body.password || '');
@@ -97,7 +103,7 @@ export async function currentAdmin(request, env) {
 }
 
 export async function requireAdmin(request, env) {
-  if (request.method !== 'GET') checkOrigin(request);
+  if (request.method !== 'GET') checkOrigin(request, env);
   const username = await currentAdmin(request, env);
   if (!username) throw new HttpError(401, 'Your session has ended. Please sign in again.');
   return username;
