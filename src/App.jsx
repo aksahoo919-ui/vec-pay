@@ -1,10 +1,23 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { User, LogOut, Plus, Edit2, Trash2, Save, X, Download, ExternalLink, FileSpreadsheet, RefreshCw, Loader2, ChevronDown } from 'lucide-react';
-import { supabase } from './config/supabase';
+import { api } from './api';
 import { CONTEST_NAME, REGISTRATION_FEE_RUPEES, CLASSES, languagesFor } from '../shared/config.js';
 import { normalizeIndianMobile } from '../shared/mobile.js';
 
 const PAYMENT_AMOUNT = REGISTRATION_FEE_RUPEES;
+
+const PAYMENTS_REFRESH_MS = 20000;   // admin dashboard checks for new/changed payments this often
+const SHEETS_TIMEOUT_MS = 90000;     // Google Sheets actions can take a while
+
+const LOGIN_ERRORS = {
+  not_admin: 'This Google account is not an admin. Ask an existing admin to add your email.',
+  cancelled: 'Sign-in was cancelled.',
+  expired: 'Sign-in took too long or was interrupted. Please try again.',
+  google: 'Google sign-in failed. Please try again.'
+};
+
+// ISO time `seconds` earlier than `iso`
+const secondsBefore = (iso, seconds) => new Date(new Date(iso).getTime() - seconds * 1000).toISOString();
 
 // Makes a value safe for a CSV cell: doubles inner quotes and stops Excel /
 // Google Sheets from running user-typed text that starts with = + - @ as a formula.
@@ -94,6 +107,13 @@ function App() {
   const [sheetLoading, setSheetLoading] = useState({});
   const [othersSheetId, setOthersSheetId] = useState('');
 
+  const [razorpayKeyId, setRazorpayKeyId] = useState('');
+  const [loginError, setLoginError] = useState('');
+
+  // Where the last payments refresh got to, and whether one is running
+  const paymentsCursor = useRef({ since: '', afterId: '' });
+  const paymentsLoading = useRef(false);
+
   // Admin management
   const [admins, setAdmins] = useState([]);
   const [newAdminEmail, setNewAdminEmail] = useState('');
@@ -150,118 +170,132 @@ function App() {
     loadCheckoutScript();
   }, []);
 
+  // ── Startup ───────────────────────────────────────────────────
+
   useEffect(() => {
-    loadCities();
-    loadSchools();
-    loadColleges();
+    // Google sends the admin back here with ?login_error=… if sign-in failed
+    const params = new URLSearchParams(window.location.search);
+    const reason = params.get('login_error');
+    if (reason) {
+      setLoginError(LOGIN_ERRORS[reason] || LOGIN_ERRORS.google);
+      setShowLoginModal(true);
+      window.history.replaceState(null, '', window.location.pathname);
+    }
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      const user = session?.user;
-      if (user) {
-        const { data: adminRecord } = await supabase
-          .from('admins')
-          .select('email')
-          .eq('email', user.email)
-          .maybeSingle();
-
-        if (adminRecord) {
-          setIsAdmin(true);
-          setAdminEmail(user.email);
-          loadPayments();
-          loadAdmins();
-          loadSettings();
-        } else {
-          setIsAdmin(false);
-          setAdminEmail('');
-          supabase.auth.signOut();
+    (async () => {
+      const [, me] = await Promise.all([
+        loadPublicData(),
+        api('/api/auth/me').catch(() => null)   // not signed in → public registration page
+      ]);
+      if (me?.email) {
+        try {
+          await enterAdmin(me.email);
+        } catch (error) {
+          console.error('Error loading admin panel:', error);
         }
-      } else {
-        setIsAdmin(false);
-        setAdminEmail('');
       }
       setLoading(false);
-    });
-
-    return () => subscription.unsubscribe();
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Live updates: refresh payments whenever the table changes (admin only)
+  // Live updates: while the admin panel is open and visible, fetch payments
+  // that changed in the last few seconds (cheap on D1 row reads).
   useEffect(() => {
     if (!isAdmin) return;
-    const channel = supabase
-      .channel('payments-live')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'payments' }, () => {
-        loadPayments();
-      })
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
+    const timer = setInterval(() => {
+      if (document.visibilityState === 'visible') loadPaymentChanges();
+    }, PAYMENTS_REFRESH_MS);
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin]);
 
   // ── Data Loading ──────────────────────────────────────────────
 
-  const loadCities = async () => {
+  const loadPublicData = async () => {
     try {
-      const { data, error } = await supabase.from('cities').select('*').order('name');
-      if (error) throw error;
-      setCities(data || []);
+      const data = await api('/api/public/bootstrap');
+      setRazorpayKeyId(data.razorpayKeyId);
+      setCities(data.cities);
+      setSchools(data.schools);
+      setColleges(data.colleges);
     } catch (error) {
-      console.error('Error loading cities:', error);
+      console.error('Error loading page data:', error);
+      setPayError('Could not load the school list. Please refresh the page.');
     }
   };
 
-  const loadSchools = async () => {
+  const enterAdmin = async (email) => {
+    const data = await api('/api/admin/bootstrap');
+    setAdminEmail(email);
+    setCities(data.cities);
+    setSchools(data.schools);
+    setColleges(data.colleges);
+    setAdmins(data.admins);
+    setOthersSheetId(data.othersSheetId);
+    setIsAdmin(true);
+    paymentsCursor.current = { since: '', afterId: '' };
+    setPayments([]);
+    loadPaymentChanges();
+  };
+
+  const leaveAdmin = () => {
+    setIsAdmin(false);
+    setAdminEmail('');
+    setPayments([]);
+    paymentsCursor.current = { since: '', afterId: '' };
+  };
+
+  // Admin request; if the session has ended, go back to the public page.
+  const adminApi = async (path, options) => {
     try {
-      const { data, error } = await supabase.from('schools').select('*');
-      if (error) throw error;
-      setSchools(data || []);
-    } catch (error) {
-      console.error('Error loading schools:', error);
-      setSchools([{
-        id: '1',
-        name: 'Damanwada Government School, Daman',
-        city: 'Daman',
-        devotee: 'Suddha Citta Das',
-        languages: ['English', 'Hindi', 'Gujarati']
-      }]);
-    } finally {
-      setLoading(false);
+      return await api(path, options);
+    } catch (err) {
+      if (err.status === 401) {
+        leaveAdmin();
+        setLoginError('Your session has ended. Please sign in again.');
+        setShowLoginModal(true);
+      }
+      throw err;
     }
   };
 
-  const loadColleges = async () => {
+  // Loads payments changed since the last check (all of them the first time),
+  // page by page, and merges them into the list by ID.
+  const loadPaymentChanges = async () => {
+    if (paymentsLoading.current) return;
+    paymentsLoading.current = true;
     try {
-      const { data, error } = await supabase.from('colleges').select('*').order('name');
-      if (error) throw error;
-      setColleges(data || []);
-    } catch (error) {
-      console.error('Error loading colleges:', error);
-    }
-  };
-
-  const loadPayments = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('payments')
-        .select('*')
-        .order('timestamp', { ascending: false });
-      if (error) throw error;
-      setPayments(data || []);
+      // Start a few seconds early so nothing written at the same moment is missed
+      let since = paymentsCursor.current.since ? secondsBefore(paymentsCursor.current.since, 5) : '';
+      let afterId = since ? '' : paymentsCursor.current.afterId;
+      const changed = [];
+      for (;;) {
+        const qs = new URLSearchParams({ since, afterId, limit: '500' });
+        const data = await adminApi(`/api/admin/payments?${qs}`);
+        changed.push(...data.payments);
+        if (!data.next) break;
+        ({ since, afterId } = data.next);
+      }
+      if (changed.length) {
+        const newest = changed.reduce((a, p) => (p.updated_at > a.updated_at ? p : a));
+        if (newest.updated_at > paymentsCursor.current.since) {
+          paymentsCursor.current = { since: newest.updated_at, afterId: newest.id };
+        }
+        setPayments(prev => {
+          const byId = new Map(prev.map(p => [p.id, p]));
+          changed.forEach(p => byId.set(p.id, p));
+          return [...byId.values()].sort((a, b) => (a.timestamp < b.timestamp ? 1 : -1));
+        });
+      }
     } catch (error) {
       console.error('Error loading payments:', error);
+    } finally {
+      paymentsLoading.current = false;
     }
   };
 
   // ── Admin CRUD ────────────────────────────────────────────────
-
-  const loadAdmins = async () => {
-    try {
-      const { data, error } = await supabase.from('admins').select('*').order('email');
-      if (error) throw error;
-      setAdmins(data || []);
-    } catch (error) {
-      console.error('Error loading admins:', error);
-    }
-  };
 
   const addAdmin = async () => {
     const email = newAdminEmail.trim().toLowerCase();
@@ -270,8 +304,7 @@ function App() {
     if (admins.some(a => a.email === email)) { alert('This email is already an admin'); return; }
 
     try {
-      const { data, error } = await supabase.from('admins').insert({ email }).select().single();
-      if (error) throw error;
+      const data = await adminApi('/api/admin/admins', { method: 'POST', body: { email } });
       setAdmins([...admins, data].sort((a, b) => a.email.localeCompare(b.email)));
       setNewAdminEmail('');
     } catch (error) {
@@ -286,8 +319,7 @@ function App() {
     if (!confirm(`Remove ${adminRecord.email} as admin?`)) return;
 
     try {
-      const { error } = await supabase.from('admins').delete().eq('id', adminRecord.id);
-      if (error) throw error;
+      await adminApi(`/api/admin/admins/${adminRecord.id}`, { method: 'DELETE' });
       setAdmins(admins.filter(a => a.id !== adminRecord.id));
     } catch (error) {
       console.error('Error removing admin:', error);
@@ -304,19 +336,10 @@ function App() {
     }
 
     try {
-      const { data, error } = await supabase
-        .from('schools')
-        .insert({
-          name: newSchool.name.trim(),
-          city: newSchool.city.trim(),
-          devotee: newSchool.devotee.trim(),
-          languages: ['English']
-        })
-        .select()
-        .single();
-
-      if (error) throw error;
-
+      const data = await adminApi('/api/admin/schools', {
+        method: 'POST',
+        body: { name: newSchool.name.trim(), city: newSchool.city.trim(), devotee: newSchool.devotee.trim() }
+      });
       setSchools([...schools, data]);
       setNewSchool({ name: '', city: '', devotee: '' });
       setShowAddSchool(false);
@@ -330,23 +353,16 @@ function App() {
 
   const updateSchoolInDb = async (id) => {
     try {
-      const { error } = await supabase
-        .from('schools')
-        .update({
-          name: editingSchool.name,
-          city: editingSchool.city,
-          devotee: editingSchool.devotee
-        })
-        .eq('id', id);
-
-      if (error) throw error;
-
-      setSchools(schools.map(s => s.id === id ? editingSchool : s));
+      const data = await adminApi(`/api/admin/schools/${id}`, {
+        method: 'PUT',
+        body: { name: editingSchool.name, city: editingSchool.city, devotee: editingSchool.devotee }
+      });
+      setSchools(schools.map(s => s.id === id ? { ...s, ...data } : s));
       setEditingSchool(null);
       alert('School updated successfully!');
     } catch (error) {
       console.error('Error updating school:', error);
-      alert('Error updating school. Please try again.');
+      alert(`Error updating school: ${error.message}`);
     }
   };
 
@@ -354,8 +370,7 @@ function App() {
     if (!confirm('Are you sure you want to delete this school?')) return;
 
     try {
-      const { error } = await supabase.from('schools').delete().eq('id', id);
-      if (error) throw error;
+      await adminApi(`/api/admin/schools/${id}`, { method: 'DELETE' });
       setSchools(schools.filter(s => s.id !== id));
       alert('School deleted successfully!');
     } catch (error) {
@@ -366,32 +381,13 @@ function App() {
 
   // ── Google Sheets ─────────────────────────────────────────────
 
-  const getSessionToken = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    return session?.access_token || '';
-  };
-
-  const loadSettings = async () => {
-    try {
-      const { data } = await supabase.from('settings').select('*');
-      const othersId = data?.find(s => s.key === 'others_sheet_id')?.value || '';
-      setOthersSheetId(othersId);
-    } catch (err) {
-      console.error('Error loading settings:', err);
-    }
-  };
+  const sheetsApi = (action, body) =>
+    adminApi(`/api/admin/sheets/${action}`, { method: 'POST', body, timeout: SHEETS_TIMEOUT_MS });
 
   const createSchoolSheet = async (school) => {
     setSheetLoading(prev => ({ ...prev, [school.id]: 'create' }));
     try {
-      const token = await getSessionToken();
-      const res = await fetch('/api/sheets-create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ schoolId: school.id })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed');
+      const data = await sheetsApi('create', { schoolId: school.id });
       setSchools(prev => prev.map(s => s.id === school.id ? { ...s, sheet_id: data.sheetId } : s));
       if (data.warnings?.length) alert(`Sheet for "${school.name}" was created, but:\n\n${data.warnings.join('\n')}`);
     } catch (err) {
@@ -405,14 +401,7 @@ function App() {
   const createOthersSheet = async () => {
     setSheetLoading(prev => ({ ...prev, others: 'create' }));
     try {
-      const token = await getSessionToken();
-      const res = await fetch('/api/sheets-create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ type: 'others' })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed');
+      const data = await sheetsApi('create', { type: 'others' });
       setOthersSheetId(data.sheetId);
       alert(data.warnings?.length
         ? `Others Sheet was created, but:\n\n${data.warnings.join('\n')}`
@@ -428,14 +417,7 @@ function App() {
   const syncSheetPush = async (school) => {
     setSheetLoading(prev => ({ ...prev, [school.id]: 'push' }));
     try {
-      const token = await getSessionToken();
-      const res = await fetch('/api/sheets-sync-push', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ schoolId: school.id })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed');
+      const data = await sheetsApi('push', { schoolId: school.id });
       alert(`Added ${data.added} new payment(s) to Google Sheet (${data.total} captured in total).`);
     } catch (err) {
       console.error('Sync push failed:', err);
@@ -448,14 +430,7 @@ function App() {
   const syncOthersSheetPush = async () => {
     setSheetLoading(prev => ({ ...prev, others: 'push' }));
     try {
-      const token = await getSessionToken();
-      const res = await fetch('/api/sheets-sync-push', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ type: 'others' })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed');
+      const data = await sheetsApi('push', { type: 'others' });
       alert(`Added ${data.added} new payment(s) to Others Sheet (${data.total} captured in total).`);
     } catch (err) {
       console.error('Sync push others failed:', err);
@@ -469,16 +444,9 @@ function App() {
     if (!confirm('This will overwrite Book Given values in the portal with values from the Google Sheet. Continue?')) return;
     setSheetLoading(prev => ({ ...prev, [school.id]: 'pull' }));
     try {
-      const token = await getSessionToken();
-      const res = await fetch('/api/sheets-sync-pull', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ sheetId: school.sheet_id })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed');
+      const data = await sheetsApi('pull', { schoolId: school.id });
       alert(`Synced Book Given for ${data.updated} record(s) from Google Sheet.`);
-      loadPayments();
+      loadPaymentChanges();
     } catch (err) {
       console.error('Sync pull failed:', err);
       alert(`Sync failed: ${err.message}`);
@@ -491,16 +459,9 @@ function App() {
     if (!confirm('This will overwrite Book Given values in the portal with values from the Others Sheet. Continue?')) return;
     setSheetLoading(prev => ({ ...prev, others: 'pull' }));
     try {
-      const token = await getSessionToken();
-      const res = await fetch('/api/sheets-sync-pull', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ sheetId: othersSheetId, type: 'others' })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed');
+      const data = await sheetsApi('pull', { type: 'others' });
       alert(`Synced Book Given for ${data.updated} record(s) from Others Sheet.`);
-      loadPayments();
+      loadPaymentChanges();
     } catch (err) {
       console.error('Sync pull others failed:', err);
       alert(`Sync failed: ${err.message}`);
@@ -509,41 +470,38 @@ function App() {
     }
   };
 
+  // Runs one sheet action for every school sheet and the Others sheet.
+  const runOnAllSheets = async (action, countKey) => {
+    const targets = [
+      ...schools.filter(s => s.sheet_id).map(s => ({ body: { schoolId: s.id }, label: s.name })),
+      ...(othersSheetId ? [{ body: { type: 'others' }, label: 'Others' }] : [])
+    ];
+    let total = 0;
+    const failures = [];
+    for (const t of targets) {
+      try {
+        const data = await sheetsApi(action, t.body);
+        total += data[countKey] || 0;
+      } catch (err) {
+        console.error(`Bulk ${action} failed for ${t.label}:`, err);
+        failures.push(`${t.label}: ${err.message}`);
+      }
+    }
+    return { total, failures, count: targets.length };
+  };
+
+  const sheetTargetCount = () => schools.filter(s => s.sheet_id).length + (othersSheetId ? 1 : 0);
+
   const bulkExportSheets = async () => {
-    const schoolsWithSheet = schools.filter(s => s.sheet_id);
-    const targets = schoolsWithSheet.length + (othersSheetId ? 1 : 0);
+    const targets = sheetTargetCount();
     if (targets === 0) { alert('No sheets found. Create school sheets (and the Others sheet) first.'); return; }
     if (!confirm(`Export captured payments to all ${targets} sheet(s)? New records are appended to each.`)) return;
 
     setSheetLoading(prev => ({ ...prev, bulk: 'push' }));
     try {
-      const token = await getSessionToken();
-      let totalAdded = 0;
-      const failures = [];
-
-      const pushOne = async (body, label) => {
-        try {
-          const res = await fetch('/api/sheets-sync-push', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-            body: JSON.stringify(body)
-          });
-          const data = await res.json();
-          if (!res.ok) throw new Error(data.error || 'Failed');
-          totalAdded += data.added || 0;
-        } catch (err) {
-          console.error(`Bulk export failed for ${label}:`, err);
-          failures.push(label);
-        }
-      };
-
-      for (const school of schoolsWithSheet) {
-        await pushOne({ schoolId: school.id }, school.name);
-      }
-      if (othersSheetId) await pushOne({ type: 'others' }, 'Others');
-
-      let msg = `Bulk export complete. Added ${totalAdded} new record(s) across ${targets} sheet(s).`;
-      if (failures.length) msg += `\n\nFailed for: ${failures.join(', ')}`;
+      const { total, failures, count } = await runOnAllSheets('push', 'added');
+      let msg = `Bulk export complete. Added ${total} new record(s) across ${count} sheet(s).`;
+      if (failures.length) msg += `\n\nFailed for:\n${failures.join('\n')}`;
       alert(msg);
     } finally {
       setSheetLoading(prev => ({ ...prev, bulk: null }));
@@ -551,41 +509,16 @@ function App() {
   };
 
   const bulkPullSheets = async () => {
-    const schoolsWithSheet = schools.filter(s => s.sheet_id);
-    const targets = schoolsWithSheet.length + (othersSheetId ? 1 : 0);
+    const targets = sheetTargetCount();
     if (targets === 0) { alert('No sheets found. Create school sheets (and the Others sheet) first.'); return; }
     if (!confirm(`Sync Book Given from all ${targets} sheet(s) into the portal? Portal values are overwritten with sheet values.`)) return;
 
     setSheetLoading(prev => ({ ...prev, bulk: 'pull' }));
     try {
-      const token = await getSessionToken();
-      let totalUpdated = 0;
-      const failures = [];
-
-      const pullOne = async (body, label) => {
-        try {
-          const res = await fetch('/api/sheets-sync-pull', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-            body: JSON.stringify(body)
-          });
-          const data = await res.json();
-          if (!res.ok) throw new Error(data.error || 'Failed');
-          totalUpdated += data.updated || 0;
-        } catch (err) {
-          console.error(`Bulk sync failed for ${label}:`, err);
-          failures.push(label);
-        }
-      };
-
-      for (const school of schoolsWithSheet) {
-        await pullOne({ sheetId: school.sheet_id }, school.name);
-      }
-      if (othersSheetId) await pullOne({ sheetId: othersSheetId, type: 'others' }, 'Others');
-
-      loadPayments();
-      let msg = `Bulk sync complete. Updated Book Given for ${totalUpdated} record(s) across ${targets} sheet(s).`;
-      if (failures.length) msg += `\n\nFailed for: ${failures.join(', ')}`;
+      const { total, failures, count } = await runOnAllSheets('pull', 'updated');
+      loadPaymentChanges();
+      let msg = `Bulk sync complete. Updated Book Given for ${total} record(s) across ${count} sheet(s).`;
+      if (failures.length) msg += `\n\nFailed for:\n${failures.join('\n')}`;
       alert(msg);
     } finally {
       setSheetLoading(prev => ({ ...prev, bulk: null }));
@@ -596,14 +529,7 @@ function App() {
     if (!confirm('Make all existing Google Sheets publicly viewable (anyone with the link)? This cannot be undone.')) return;
     setSheetLoading(prev => ({ ...prev, makePublic: true }));
     try {
-      const session = await supabase.auth.getSession();
-      const token = session.data.session?.access_token;
-      const res = await fetch('/api/sheets-make-public', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      const data = await res.json();
-      if (!res.ok || data.error) throw new Error(data.error || 'Failed');
+      const data = await sheetsApi('make-public');
       let msg = `Done! ${data.succeeded} of ${data.total} sheet(s) are now public.`;
       if (data.failed) msg += `\n\n${data.failed} failed:\n${(data.failures || []).join('\n')}`;
       alert(msg);
@@ -623,18 +549,10 @@ function App() {
     }
 
     try {
-      const { data, error } = await supabase
-        .from('colleges')
-        .insert({
-          name: newCollege.name.trim(),
-          city: newCollege.city.trim(),
-          devotee: newCollege.devotee.trim()
-        })
-        .select()
-        .single();
-
-      if (error) throw error;
-
+      const data = await adminApi('/api/admin/colleges', {
+        method: 'POST',
+        body: { name: newCollege.name.trim(), city: newCollege.city.trim(), devotee: newCollege.devotee.trim() }
+      });
       setColleges([...colleges, data]);
       setNewCollege({ name: '', city: '', devotee: '' });
       setShowAddCollege(false);
@@ -647,23 +565,16 @@ function App() {
 
   const updateCollegeInDb = async (id) => {
     try {
-      const { error } = await supabase
-        .from('colleges')
-        .update({
-          name: editingCollege.name,
-          city: editingCollege.city,
-          devotee: editingCollege.devotee
-        })
-        .eq('id', id);
-
-      if (error) throw error;
-
-      setColleges(colleges.map(c => c.id === id ? editingCollege : c));
+      const data = await adminApi(`/api/admin/colleges/${id}`, {
+        method: 'PUT',
+        body: { name: editingCollege.name, city: editingCollege.city, devotee: editingCollege.devotee }
+      });
+      setColleges(colleges.map(c => c.id === id ? { ...c, ...data } : c));
       setEditingCollege(null);
       alert('College updated successfully!');
     } catch (error) {
       console.error('Error updating college:', error);
-      alert('Error updating college. Please try again.');
+      alert(`Error updating college: ${error.message}`);
     }
   };
 
@@ -671,8 +582,7 @@ function App() {
     if (!confirm('Are you sure you want to delete this college?')) return;
 
     try {
-      const { error } = await supabase.from('colleges').delete().eq('id', id);
-      if (error) throw error;
+      await adminApi(`/api/admin/colleges/${id}`, { method: 'DELETE' });
       setColleges(colleges.filter(c => c.id !== id));
       alert('College deleted successfully!');
     } catch (error) {
@@ -683,16 +593,13 @@ function App() {
 
   const updateBookGiven = async (payment, value) => {
     try {
-      const { error } = await supabase.from('payments').update({ book_given: value }).eq('id', payment.id);
-      if (error) throw error;
-      setPayments(payments.map(p => p.id === payment.id ? { ...p, book_given: value } : p));
+      await adminApi(`/api/admin/payments/${payment.id}/book-given`, { method: 'PUT', body: { value } });
+      setPayments(prev => prev.map(p => p.id === payment.id ? { ...p, book_given: value } : p));
     } catch (error) {
       console.error('Error updating book status:', error);
       alert(`Error updating book status: ${error.message}`);
     }
   };
-
-  // ── Payment ───────────────────────────────────────────────────
 
   // ── City CRUD ─────────────────────────────────────────────────
 
@@ -703,8 +610,7 @@ function App() {
     if (cities.some(c => c.name === cityName)) { alert('City already exists'); return; }
 
     try {
-      const { data, error } = await supabase.from('cities').insert({ name: cityName }).select().single();
-      if (error) throw error;
+      const data = await adminApi('/api/admin/cities', { method: 'POST', body: { name: cityName } });
       setCities([...cities, data].sort((a, b) => a.name.localeCompare(b.name)));
       setNewCity('');
       setShowAddCity(false);
@@ -723,15 +629,8 @@ function App() {
     if (cities.some(c => c.name === trimmedNewName)) { alert('City already exists'); return; }
 
     try {
-      const { error: cityError } = await supabase.from('cities').update({ name: trimmedNewName }).eq('id', cityId);
-      if (cityError) throw cityError;
-
-      const { error: schoolError } = await supabase.from('schools').update({ city: trimmedNewName }).eq('city', oldCityName);
-      if (schoolError) throw schoolError;
-
-      const { error: collegeError } = await supabase.from('colleges').update({ city: trimmedNewName }).eq('city', oldCityName);
-      if (collegeError) throw collegeError;
-
+      // The server also renames the city on its schools and colleges
+      await adminApi(`/api/admin/cities/${cityId}`, { method: 'PUT', body: { name: trimmedNewName } });
       setCities(cities.map(c => c.id === cityId ? { ...c, name: trimmedNewName } : c).sort((a, b) => a.name.localeCompare(b.name)));
       setSchools(schools.map(s => s.city === oldCityName ? { ...s, city: trimmedNewName } : s));
       setColleges(colleges.map(c => c.city === oldCityName ? { ...c, city: trimmedNewName } : c));
@@ -745,16 +644,15 @@ function App() {
   };
 
   const deleteCityFromDb = async (city) => {
-    const schoolsUsingCity = schools.filter(s => s.city === city.name);
-    if (schoolsUsingCity.length > 0) {
-      alert(`Cannot delete city. ${schoolsUsingCity.length} school(s) are using this city.`);
+    const used = schools.filter(s => s.city === city.name).length + colleges.filter(c => c.city === city.name).length;
+    if (used > 0) {
+      alert(`Cannot delete city. ${used} school(s)/college(s) are using this city.`);
       return;
     }
     if (!confirm(`Are you sure you want to delete "${city.name}"?`)) return;
 
     try {
-      const { error } = await supabase.from('cities').delete().eq('id', city.id);
-      if (error) throw error;
+      await adminApi(`/api/admin/cities/${city.id}`, { method: 'DELETE' });
       setCities(cities.filter(c => c.id !== city.id));
       alert('City deleted successfully!');
     } catch (error) {
@@ -764,6 +662,7 @@ function App() {
   };
 
   // ── Registration + Payment ────────────────────────────────────
+
 
   // Everything the server needs to create the registration. The server
   // re-checks all of it and looks up school/college details by ID itself.
@@ -811,30 +710,14 @@ function App() {
     let registration = lastRegistration?.signature === signature ? lastRegistration : null;
 
     if (!registration) {
-      // Timeout so a dead/flaky connection can't stall indefinitely
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 20000);
       try {
-        const res = await fetch('/api/register', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-          signal: controller.signal
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok || !data.orderId) {
-          setPayError(data.error || 'Could not start payment. Please check your connection and try again.');
-          setIsSubmitting(false);
-          return;
-        }
+        const data = await api('/api/register', { method: 'POST', body: payload });
         registration = { signature, orderId: data.orderId, mobile: data.mobile };
         setLastRegistration(registration);
-      } catch {
-        setPayError('Could not start payment. Please check your connection and try again.');
+      } catch (err) {
+        setPayError(err.message || 'Could not start payment. Please check your connection and try again.');
         setIsSubmitting(false);
         return;
-      } finally {
-        clearTimeout(timer);
       }
     }
 
@@ -848,7 +731,7 @@ function App() {
     setIsSubmitting(false);
 
     const rzp = new window.Razorpay({
-      key: import.meta.env.VITE_RAZORPAY_KEY_ID,
+      key: razorpayKeyId,
       order_id: registration.orderId,
       amount: PAYMENT_AMOUNT * 100,
       currency: 'INR',
@@ -864,28 +747,19 @@ function App() {
 
   // ── Auth ──────────────────────────────────────────────────────
 
-  const handleGoogleLogin = async () => {
-    try {
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: { redirectTo: window.location.origin }
-      });
-      if (error) throw error;
-      setShowLoginModal(false);
-    } catch (error) {
-      console.error('Error signing in:', error);
-      alert('Error signing in. Please try again.');
-    }
+  // Full-page redirect to Google; Google sends the admin back to /api/auth/google/callback
+  const handleGoogleLogin = () => {
+    window.location.href = '/api/auth/google/start';
   };
 
   const handleLogout = async () => {
     try {
-      await supabase.auth.signOut();
-      setIsAdmin(false);
-      setAdminEmail('');
+      await api('/api/auth/logout', { method: 'POST' });
     } catch (error) {
       console.error('Error signing out:', error);
     }
+    leaveAdmin();
+    loadPublicData();
   };
 
   // ── Helpers ───────────────────────────────────────────────────
@@ -1699,6 +1573,9 @@ function App() {
               <h2 className="text-2xl font-bold text-gray-900">Admin Portal</h2>
               <p className="text-gray-400 text-sm mt-1">Sign in to manage the contest</p>
             </div>
+            {loginError && (
+              <p className="text-red-600 text-sm text-center font-medium bg-red-50 border border-red-100 rounded-xl px-3 py-2 mb-4">{loginError}</p>
+            )}
             <button onClick={handleGoogleLogin}
               className="w-full flex items-center justify-center gap-3 border-2 border-gray-200 hover:border-orange-300 hover:bg-orange-50 text-gray-700 px-4 py-3.5 rounded-2xl transition-all font-semibold mb-3">
               <svg width="20" height="20" viewBox="0 0 24 24">
@@ -1709,7 +1586,7 @@ function App() {
               </svg>
               Continue with Google
             </button>
-            <button onClick={() => setShowLoginModal(false)}
+            <button onClick={() => { setShowLoginModal(false); setLoginError(''); }}
               className="w-full text-gray-400 hover:text-gray-600 py-2 text-sm transition-colors">
               Cancel
             </button>
