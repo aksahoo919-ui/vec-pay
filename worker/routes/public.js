@@ -1,76 +1,57 @@
 // Routes the public registration page uses (no login).
 import { HttpError, json, readJson, text, need } from '../lib/http.js';
 import { insert, newId } from '../lib/db.js';
-import { createOrder } from '../lib/razorpay.js';
+import { createOrder, checkoutSignatureIsValid } from '../lib/razorpay.js';
+import { enabledLanguages } from '../lib/settings.js';
+import { findWhatsappLink } from '../lib/whatsapp.js';
 import { normalizeIndianMobile } from '../../shared/mobile.js';
-import { REGISTRATION_FEE_RUPEES, REGISTRATION_FEE_PAISE, CLASSES, STATUSES, languagesFor } from '../../shared/config.js';
+import { REGISTRATION_FEE_RUPEES, REGISTRATION_FEE_PAISE, CLASSES } from '../../shared/config.js';
 
 // GET /api/public/bootstrap — everything the form needs in one request
 export async function bootstrap(request, env) {
-  const [cities, schools, colleges] = await env.DB.batch([
+  const [cities, schools] = await env.DB.batch([
     env.DB.prepare('SELECT id, name FROM cities ORDER BY name'),
-    env.DB.prepare('SELECT id, name, city, devotee FROM schools ORDER BY name'),
-    env.DB.prepare('SELECT id, name, city, devotee FROM colleges ORDER BY name')
+    env.DB.prepare('SELECT id, name, city, devotee FROM schools ORDER BY name')
   ]);
   return json({
     razorpayKeyId: env.RAZORPAY_KEY_ID || '',
     cities: cities.results,
     schools: schools.results,
-    colleges: colleges.results
+    languages: await enabledLanguages(env)
   });
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-// A school/college choice is either an ID from the list, or "Other" with a typed name.
-async function resolveInstitution(env, table, choice, otherName, label) {
-  if (choice === 'Other') {
-    return { id: null, name: need(text(otherName, 150), `Please enter the ${label} name`), city: '', devotee: '' };
-  }
-  if (typeof choice !== 'string' || !UUID_RE.test(choice)) throw new HttpError(400, `Please select a ${label}`);
-
-  const row = await env.DB.prepare(`SELECT id, name, city, devotee FROM ${table} WHERE id = ?`).bind(choice).first();
-  if (!row) throw new HttpError(400, `The selected ${label} no longer exists. Please refresh the page and choose again.`);
-  return row;
-}
-
 async function buildRegistration(env, body) {
-  const name = need(text(body.name, 100), 'Please enter your full name');
-  const currentStatus = need(STATUSES.includes(body.currentStatus) ? body.currentStatus : null, 'Please select your current status');
+  const name = need(text(body.name, 100), 'Please enter the full name');
+
+  if (typeof body.schoolId !== 'string' || !UUID_RE.test(body.schoolId)) throw new HttpError(400, 'Please select a school');
+  const school = await env.DB.prepare('SELECT id, name, city, devotee FROM schools WHERE id = ?').bind(body.schoolId).first();
+  if (!school) throw new HttpError(400, 'The selected school no longer exists. Please refresh the page and choose again.');
+
+  const cls = need(CLASSES.includes(body.class) ? body.class : null, 'Please select the class');
+
+  const rawSection = typeof body.section === 'string' ? body.section.trim() : '';
+  if (rawSection.length > 20) throw new HttpError(400, 'Section is too long');
+
+  const languages = await enabledLanguages(env);
+  const language = need(languages.includes(body.language) ? body.language : null, 'Please select a language');
+
   const mobile = need(normalizeIndianMobile(body.mobile), 'Please enter a valid 10-digit mobile number');
-  const language = need(languagesFor(currentStatus).includes(body.language) ? body.language : null, 'Please select a language');
 
-  const row = {
-    name, current_status: currentStatus, city: '',
-    school: '', school_id: null, class: '',
-    college: '', college_id: null, branch: '',
-    company_name: '', mobile, language, referred_by: '',
-    has_children: 0, child_name: '', child_school: '', child_school_id: null, child_section: ''
+  return {
+    name,
+    current_status: 'school',
+    city: school.city || '',
+    school: school.name,
+    school_id: school.id,
+    class: cls,
+    section: rawSection,
+    language,
+    mobile,
+    referred_by: school.devotee || ''
   };
-
-  if (currentStatus === 'school') {
-    const school = await resolveInstitution(env, 'schools', body.schoolId, body.otherSchoolName, 'school');
-    Object.assign(row, { school: school.name, school_id: school.id, city: school.city || '', referred_by: school.devotee || '' });
-    row.class = need(CLASSES.includes(body.class) ? body.class : null, 'Please select your class');
-  } else if (currentStatus === 'college') {
-    const college = await resolveInstitution(env, 'colleges', body.collegeId, body.otherCollegeName, 'college');
-    Object.assign(row, { college: college.name, college_id: college.id, city: college.city || '', referred_by: college.devotee || '' });
-    row.branch = need(text(body.branch, 100), 'Please enter your branch');
-  } else if (currentStatus === 'working') {
-    row.company_name = need(text(body.companyName, 150), 'Please enter your company name');
-  }
-
-  if (['working', 'other'].includes(currentStatus) && body.hasChildren === true) {
-    const childSchool = await resolveInstitution(env, 'schools', body.childSchoolId, body.childOtherSchoolName, "child's school");
-    Object.assign(row, {
-      has_children: 1,
-      child_name: need(text(body.childName, 100), "Please enter your child's name"),
-      child_school: childSchool.name,
-      child_school_id: childSchool.id,
-      child_section: need(text(body.childSection, 30), "Please enter your child's class and section")
-    });
-  }
-  return row;
 }
 
 // POST /api/register — saves the registration and creates its Razorpay order.
@@ -103,4 +84,21 @@ export async function register(request, env) {
   }).run();
 
   return json({ orderId: order.id, mobile: row.mobile });
+}
+
+// POST /api/registration/whatsapp  { orderId, paymentId, signature }
+// Called by the form right after Razorpay reports success. The Razorpay
+// signature proves the payment went through, so only people who actually
+// paid get the WhatsApp group link.
+export async function whatsappLink(request, env) {
+  const { orderId, paymentId, signature } = await readJson(request);
+  if (!(await checkoutSignatureIsValid(orderId, paymentId, signature, env.RAZORPAY_KEY_SECRET || ''))) {
+    throw new HttpError(400, 'Could not verify the payment');
+  }
+  const registration = await env.DB.prepare(
+    'SELECT school_id, city, class, language FROM payments WHERE order_id = ?'
+  ).bind(orderId).first();
+  if (!registration) throw new HttpError(404, 'Registration not found');
+
+  return json({ link: await findWhatsappLink(env, registration) });
 }

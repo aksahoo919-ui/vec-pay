@@ -16,6 +16,8 @@ const layout = (isOthers) => isOthers
   ? { pidIdx: 8, bgIdx: 10, range: 'A2:K' }
   : { pidIdx: 5, bgIdx: 7, range: 'A2:H' };
 
+const classWithSection = (p) => (p.section ? `${p.class} - ${p.section}` : p.class);
+
 async function othersSheetId(env) {
   const row = await env.DB.prepare("SELECT value FROM settings WHERE key = 'others_sheet_id'").first();
   return row?.value || '';
@@ -135,14 +137,14 @@ export async function pushSheet(request, env) {
         const institution = p.current_status === 'college' ? collegeName
           : p.current_status === 'working' ? p.company_name
           : p.current_status === 'school' ? schoolName : '';
-        const classBranch = p.current_status === 'school' ? p.class : p.current_status === 'college' ? p.branch : '';
+        const classBranch = p.current_status === 'school' ? classWithSection(p) : p.current_status === 'college' ? p.branch : '';
         const city = schoolById.get(p.school_id)?.city || collegeById.get(p.college_id)?.city || p.city;
         return [p.name, typeLabels[p.current_status] || p.current_status, city || '', institution || '', classBranch || '',
           p.mobile, p.language || '', p.referred_by || '', p.payment_id, date, bookGiven];
       }
       const isParent = p.current_status !== 'school';
       return [isParent ? `${p.name} (Parent of ${p.child_name})` : p.name, p.mobile,
-        (isParent ? p.child_section : p.class) || '', p.language || '', p.referred_by || '', p.payment_id, date, bookGiven];
+        (isParent ? p.child_section : classWithSection(p)) || '', p.language || '', p.referred_by || '', p.payment_id, date, bookGiven];
     });
 
     await googleFetch(`${SHEETS}/${sheetId}/values/A2:append?valueInputOption=RAW`, token, {

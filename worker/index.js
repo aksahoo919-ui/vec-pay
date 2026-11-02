@@ -1,7 +1,7 @@
 // Cloudflare Worker: serves the website (static files from ./dist) and the /api routes.
 import { HttpError, json } from './lib/http.js';
 import { login, currentAdmin, requireAdmin, logout } from './lib/auth.js';
-import { bootstrap, register } from './routes/public.js';
+import { bootstrap, register, whatsappLink } from './routes/public.js';
 import { razorpayWebhook } from './routes/webhook.js';
 import * as admin from './routes/admin.js';
 import * as sheets from './routes/sheets.js';
@@ -13,6 +13,7 @@ const adminOnly = (handler) => ({ handler, admin: true });
 const ROUTES = [
   ['GET',    '/api/public/bootstrap',              open(bootstrap)],
   ['POST',   '/api/register',                      open(register)],
+  ['POST',   '/api/registration/whatsapp',         open(whatsappLink)],
   ['POST',   '/api/razorpay-webhook',              open(razorpayWebhook)],
 
   ['POST',   '/api/auth/login',                    open(login)],
@@ -31,9 +32,10 @@ const ROUTES = [
   ['POST',   '/api/admin/schools',                 adminOnly(admin.schools.add)],
   ['PUT',    '/api/admin/schools/:id',             adminOnly(admin.schools.update)],
   ['DELETE', '/api/admin/schools/:id',             adminOnly(admin.schools.remove)],
-  ['POST',   '/api/admin/colleges',                adminOnly(admin.colleges.add)],
-  ['PUT',    '/api/admin/colleges/:id',            adminOnly(admin.colleges.update)],
-  ['DELETE', '/api/admin/colleges/:id',            adminOnly(admin.colleges.remove)],
+  ['PUT',    '/api/admin/settings/languages',      adminOnly(admin.setLanguages)],
+  ['POST',   '/api/admin/whatsapp-groups',         adminOnly(admin.addGroup)],
+  ['PUT',    '/api/admin/whatsapp-groups/:id',     adminOnly(admin.updateGroup)],
+  ['DELETE', '/api/admin/whatsapp-groups/:id',     adminOnly(admin.deleteGroup)],
   ['POST',   '/api/admin/admins',                  adminOnly(admin.addAdmin)],
   ['DELETE', '/api/admin/admins/:id',              adminOnly(admin.removeAdmin)],
   ['POST',   '/api/admin/sheets/create',           adminOnly(sheets.createSheet)],

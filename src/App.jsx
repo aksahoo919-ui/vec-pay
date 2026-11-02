@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { User, LogOut, Plus, Edit2, Trash2, Save, X, Download, ExternalLink, FileSpreadsheet, RefreshCw, Loader2, ChevronDown } from 'lucide-react';
 import { api } from './api';
-import { CONTEST_NAME, REGISTRATION_FEE_RUPEES, CLASSES, languagesFor } from '../shared/config.js';
+import { CONTEST_NAME, REGISTRATION_FEE_RUPEES, CLASSES, LANGUAGES } from '../shared/config.js';
 import { normalizeIndianMobile } from '../shared/mobile.js';
 
 const PAYMENT_AMOUNT = REGISTRATION_FEE_RUPEES;
@@ -52,38 +52,32 @@ function App() {
 
   const [formData, setFormData] = useState({
     name: '',
-    currentStatus: '',   // 'school' | 'college' | 'working'
-    school: '',
+    city: '',       // city/area name
+    school: '',     // school ID
     class: '',
-    college: '',
-    branch: '',
-    companyName: '',
-    mobile: '',
-    language: ''
+    section: '',
+    language: '',
+    mobile: ''
   });
-  const [otherSchoolName, setOtherSchoolName] = useState('');
-  const [otherCollegeName, setOtherCollegeName] = useState('');
-
-  const [childParticipates, setChildParticipates] = useState('');
-  const [childName, setChildName] = useState('');
-  const [childSchool, setChildSchool] = useState('');
-  const [childOtherSchoolName, setChildOtherSchoolName] = useState('');
-  const [childSection, setChildSection] = useState('');
 
   // cities is {id, name}[]
   const [cities, setCities] = useState([]);
   const [schools, setSchools] = useState([]);
-  const [colleges, setColleges] = useState([]);
   const classes = CLASSES;
   const [payments, setPayments] = useState([]);
+
+  // Languages offered on the form (admin setting)
+  const [languages, setLanguages] = useState(LANGUAGES);
+  const [languageDraft, setLanguageDraft] = useState(LANGUAGES);
+
+  // WhatsApp groups (admin) and the link shown after payment
+  const [whatsappGroups, setWhatsappGroups] = useState([]);
+  const [groupForm, setGroupForm] = useState(null);   // null = closed; { id?, cityId, classes, language, link }
+  const [whatsapp, setWhatsapp] = useState(null);     // null | { status: 'loading' | 'ready', link }
 
   const [editingSchool, setEditingSchool] = useState(null);
   const [showAddSchool, setShowAddSchool] = useState(false);
   const [newSchool, setNewSchool] = useState({ name: '', city: '', devotee: '' });
-
-  const [editingCollege, setEditingCollege] = useState(null);
-  const [showAddCollege, setShowAddCollege] = useState(false);
-  const [newCollege, setNewCollege] = useState({ name: '', city: '', devotee: '' });
 
   // editingCity is {id, name} | null
   const [showAddCity, setShowAddCity] = useState(false);
@@ -125,38 +119,32 @@ function App() {
   const [payError, setPayError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const isFormComplete = useMemo(() => {
-    if (!formData.name.trim() || !formData.currentStatus || !formData.language) return false;
-    if (!normalizeIndianMobile(formData.mobile)) return false;
-    if (formData.currentStatus === 'school') {
-      if (!formData.school) return false;
-      if (formData.school === 'Other' && !otherSchoolName.trim()) return false;
-      if (!formData.class) return false;
-    } else if (formData.currentStatus === 'college') {
-      if (!formData.college) return false;
-      if (formData.college === 'Other' && !otherCollegeName.trim()) return false;
-      if (!formData.branch.trim()) return false;
-    } else if (formData.currentStatus === 'working') {
-      if (!formData.companyName.trim()) return false;
-    }
-    if (['working', 'other'].includes(formData.currentStatus) && childParticipates === 'yes') {
-      if (!childName.trim()) return false;
-      if (!childSchool) return false;
-      if (childSchool === 'Other' && !childOtherSchoolName.trim()) return false;
-      if (!childSection.trim()) return false;
-    }
-    return true;
-  }, [formData, otherSchoolName, otherCollegeName, childParticipates, childName, childSchool, childOtherSchoolName, childSection]);
+  const isFormComplete = useMemo(() =>
+    !!(formData.name.trim() && formData.city && formData.school && formData.class &&
+       formData.language && normalizeIndianMobile(formData.mobile)),
+  [formData]);
 
-  // Payments are linked to schools/colleges by ID, so look up the current
-  // name and city. Falls back to the name saved at registration time for
-  // "Other" entries and for schools/colleges that were deleted.
+  // Payments are linked to schools by ID, so look up the current name and
+  // city. Falls back to the name saved at registration for deleted schools.
   const schoolById = useMemo(() => new Map(schools.map(s => [s.id, s])), [schools]);
-  const collegeById = useMemo(() => new Map(colleges.map(c => [c.id, c])), [colleges]);
   const schoolNameOf = (p) => schoolById.get(p.school_id)?.name || p.school || '';
-  const collegeNameOf = (p) => collegeById.get(p.college_id)?.name || p.college || '';
-  const childSchoolNameOf = (p) => schoolById.get(p.child_school_id)?.name || p.child_school || '';
-  const cityOf = (p) => schoolById.get(p.school_id)?.city || collegeById.get(p.college_id)?.city || p.city || '';
+  const cityOf = (p) => schoolById.get(p.school_id)?.city || p.city || '';
+  const classOf = (p) => (p.section ? `${p.class} - ${p.section}` : p.class);
+
+  // Schools in the chosen city/area
+  const schoolsInCity = useMemo(
+    () => schools.filter(s => s.city === formData.city).sort((a, b) => a.name.localeCompare(b.name)),
+    [schools, formData.city]
+  );
+
+  // If only one language is offered, pick it automatically
+  useEffect(() => {
+    setFormData(prev => {
+      if (languages.length === 1 && prev.language !== languages[0]) return { ...prev, language: languages[0] };
+      if (prev.language && !languages.includes(prev.language)) return { ...prev, language: '' };
+      return prev;
+    });
+  }, [languages]);
 
   // Clear error automatically once the form becomes complete
   useEffect(() => {
@@ -207,7 +195,7 @@ function App() {
       setRazorpayKeyId(data.razorpayKeyId);
       setCities(data.cities);
       setSchools(data.schools);
-      setColleges(data.colleges);
+      setLanguages(data.languages);
     } catch (error) {
       console.error('Error loading page data:', error);
       setPayError('Could not load the school list. Please refresh the page.');
@@ -219,7 +207,9 @@ function App() {
     setAdminUser(username);
     setCities(data.cities);
     setSchools(data.schools);
-    setColleges(data.colleges);
+    setLanguages(data.languages);
+    setLanguageDraft(data.languages);
+    setWhatsappGroups(data.whatsappGroups);
     setAdmins(data.admins);
     setOthersSheetId(data.othersSheetId);
     setIsAdmin(true);
@@ -534,57 +524,6 @@ function App() {
     }
   };
 
-  // ── College CRUD ──────────────────────────────────────────────
-
-  const addCollegeToDb = async () => {
-    if (!newCollege.name || !newCollege.city || !newCollege.devotee) {
-      alert('Please fill all fields');
-      return;
-    }
-
-    try {
-      const data = await adminApi('/api/admin/colleges', {
-        method: 'POST',
-        body: { name: newCollege.name.trim(), city: newCollege.city.trim(), devotee: newCollege.devotee.trim() }
-      });
-      setColleges([...colleges, data]);
-      setNewCollege({ name: '', city: '', devotee: '' });
-      setShowAddCollege(false);
-      alert('College added successfully!');
-    } catch (error) {
-      console.error('Error adding college:', error);
-      alert(`Error adding college: ${error.message}`);
-    }
-  };
-
-  const updateCollegeInDb = async (id) => {
-    try {
-      const data = await adminApi(`/api/admin/colleges/${id}`, {
-        method: 'PUT',
-        body: { name: editingCollege.name, city: editingCollege.city, devotee: editingCollege.devotee }
-      });
-      setColleges(colleges.map(c => c.id === id ? { ...c, ...data } : c));
-      setEditingCollege(null);
-      alert('College updated successfully!');
-    } catch (error) {
-      console.error('Error updating college:', error);
-      alert(`Error updating college: ${error.message}`);
-    }
-  };
-
-  const deleteCollegeFromDb = async (id) => {
-    if (!confirm('Are you sure you want to delete this college?')) return;
-
-    try {
-      await adminApi(`/api/admin/colleges/${id}`, { method: 'DELETE' });
-      setColleges(colleges.filter(c => c.id !== id));
-      alert('College deleted successfully!');
-    } catch (error) {
-      console.error('Error deleting college:', error);
-      alert(`Error deleting college: ${error.message}`);
-    }
-  };
-
   const updateBookGiven = async (payment, value) => {
     try {
       await adminApi(`/api/admin/payments/${payment.id}/book-given`, { method: 'PUT', body: { value } });
@@ -623,11 +562,10 @@ function App() {
     if (cities.some(c => c.name === trimmedNewName)) { alert('City already exists'); return; }
 
     try {
-      // The server also renames the city on its schools and colleges
+      // The server also renames the city on its schools
       await adminApi(`/api/admin/cities/${cityId}`, { method: 'PUT', body: { name: trimmedNewName } });
       setCities(cities.map(c => c.id === cityId ? { ...c, name: trimmedNewName } : c).sort((a, b) => a.name.localeCompare(b.name)));
       setSchools(schools.map(s => s.city === oldCityName ? { ...s, city: trimmedNewName } : s));
-      setColleges(colleges.map(c => c.city === oldCityName ? { ...c, city: trimmedNewName } : c));
       setEditingCity(null);
       setEditingCityValue('');
       alert('City updated successfully!');
@@ -638,9 +576,9 @@ function App() {
   };
 
   const deleteCityFromDb = async (city) => {
-    const used = schools.filter(s => s.city === city.name).length + colleges.filter(c => c.city === city.name).length;
+    const used = schools.filter(s => s.city === city.name).length;
     if (used > 0) {
-      alert(`Cannot delete city. ${used} school(s)/college(s) are using this city.`);
+      alert(`Cannot delete city. ${used} school(s) are using this city.`);
       return;
     }
     if (!confirm(`Are you sure you want to delete "${city.name}"?`)) return;
@@ -657,30 +595,36 @@ function App() {
 
   // ── Registration + Payment ────────────────────────────────────
 
-
   // Everything the server needs to create the registration. The server
-  // re-checks all of it and looks up school/college details by ID itself.
-  const buildRegistrationPayload = () => {
-    const status = formData.currentStatus;
-    const withChildren = ['working', 'other'].includes(status) && childParticipates === 'yes';
-    return {
-      name: formData.name.trim(),
-      currentStatus: status,
-      mobile: normalizeIndianMobile(formData.mobile) || formData.mobile.trim(),
-      language: formData.language,
-      schoolId: status === 'school' ? formData.school : '',
-      otherSchoolName: status === 'school' && formData.school === 'Other' ? otherSchoolName.trim() : '',
-      class: status === 'school' ? formData.class : '',
-      collegeId: status === 'college' ? formData.college : '',
-      otherCollegeName: status === 'college' && formData.college === 'Other' ? otherCollegeName.trim() : '',
-      branch: status === 'college' ? formData.branch.trim() : '',
-      companyName: status === 'working' ? formData.companyName.trim() : '',
-      hasChildren: withChildren,
-      childName: withChildren ? childName.trim() : '',
-      childSchoolId: withChildren ? childSchool : '',
-      childOtherSchoolName: withChildren && childSchool === 'Other' ? childOtherSchoolName.trim() : '',
-      childSection: withChildren ? childSection.trim() : ''
-    };
+  // re-checks all of it and looks up the school by ID itself.
+  const buildRegistrationPayload = () => ({
+    name: formData.name.trim(),
+    schoolId: formData.school,
+    class: formData.class,
+    section: formData.section.trim(),
+    language: formData.language,
+    mobile: normalizeIndianMobile(formData.mobile) || formData.mobile.trim()
+  });
+
+  // After Razorpay reports success: fetch the WhatsApp group for this child.
+  // The server only returns it for a verified payment.
+  const showWhatsappGroup = async (response) => {
+    setPaymentDone(true);
+    setWhatsapp({ status: 'loading', link: null });
+    try {
+      const data = await api('/api/registration/whatsapp', {
+        method: 'POST',
+        body: {
+          orderId: response.razorpay_order_id,
+          paymentId: response.razorpay_payment_id,
+          signature: response.razorpay_signature
+        }
+      });
+      setWhatsapp({ status: 'ready', link: data.link || null });
+    } catch (err) {
+      console.error('Could not load WhatsApp group:', err);
+      setWhatsapp({ status: 'ready', link: null });
+    }
   };
 
   const handlePayClick = async () => {
@@ -731,12 +675,100 @@ function App() {
       currency: 'INR',
       name: CONTEST_NAME,
       description: `Student Registration · ₹${PAYMENT_AMOUNT}`,
+      image: `${window.location.origin}/vec_logo.png`,
       prefill: { name: payload.name, contact: registration.mobile },
       theme: { color: '#ea580c' },
-      handler: () => setPaymentDone(true),
+      handler: showWhatsappGroup,
       modal: { ondismiss: () => {} }
     });
     rzp.open();
+  };
+
+  // ── Form languages (admin) ────────────────────────────────────
+
+  const saveLanguages = async () => {
+    if (!languageDraft.length) { alert('Choose at least one language'); return; }
+    try {
+      const data = await adminApi('/api/admin/settings/languages', { method: 'PUT', body: { languages: languageDraft } });
+      setLanguages(data.languages);
+      setLanguageDraft(data.languages);
+      alert('Languages saved. The registration form now offers: ' + data.languages.join(' and '));
+    } catch (err) {
+      alert(`Could not save languages: ${err.message}`);
+    }
+  };
+
+  // ── WhatsApp groups (admin) ───────────────────────────────────
+
+  const openNewGroup = () => setGroupForm({ cityId: '', classes: [], language: '', link: '' });
+
+  const saveGroup = async () => {
+    const f = groupForm;
+    if (!f.classes.length) { alert('Choose at least one class'); return; }
+    if (!/^https:\/\//i.test(f.link.trim())) { alert('Please paste the WhatsApp group link (it starts with https://)'); return; }
+    const body = { cityId: f.cityId || null, classes: f.classes, language: f.language, link: f.link.trim() };
+    try {
+      const saved = f.id
+        ? await adminApi(`/api/admin/whatsapp-groups/${f.id}`, { method: 'PUT', body })
+        : await adminApi('/api/admin/whatsapp-groups', { method: 'POST', body });
+      setWhatsappGroups(prev => f.id ? prev.map(g => g.id === f.id ? saved : g) : [...prev, saved]);
+      setGroupForm(null);
+    } catch (err) {
+      alert(`Could not save group: ${err.message}`);
+    }
+  };
+
+  const deleteGroup = async (group) => {
+    if (!confirm('Delete this WhatsApp group link?')) return;
+    try {
+      await adminApi(`/api/admin/whatsapp-groups/${group.id}`, { method: 'DELETE' });
+      setWhatsappGroups(prev => prev.filter(g => g.id !== group.id));
+    } catch (err) {
+      alert(`Could not delete group: ${err.message}`);
+    }
+  };
+
+  // Same matching rule as the server: specific city beats "all", specific language beats "any".
+  const groupFor = (cityName, cls, language) => {
+    const cityId = cities.find(c => c.name === cityName)?.id;
+    let best = null;
+    let bestScore = -1;
+    for (const g of whatsappGroups) {
+      if (g.cityId && g.cityId !== cityId) continue;
+      if (g.language && g.language !== language) continue;
+      if (!g.classes.includes(cls)) continue;
+      const score = (g.cityId ? 2 : 0) + (g.language ? 1 : 0);
+      if (score > bestScore) { best = g; bestScore = score; }
+    }
+    return best;
+  };
+
+  // City/class/language combinations that have no group yet
+  const missingGroups = useMemo(() => {
+    const missing = [];
+    const usedCities = [...new Set(schools.map(s => s.city))].sort();
+    for (const city of usedCities) {
+      for (const cls of CLASSES) {
+        for (const lang of languages) {
+          if (!groupFor(city, cls, lang)) missing.push(`${city} · ${cls} · ${lang}`);
+        }
+      }
+    }
+    return missing;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [schools, cities, whatsappGroups, languages]);
+
+  // "1st–5th, 8th" style summary
+  const describeClasses = (list) => {
+    const idx = list.map(c => CLASSES.indexOf(c)).filter(i => i >= 0).sort((a, b) => a - b);
+    const parts = [];
+    for (let i = 0; i < idx.length; i++) {
+      let j = i;
+      while (j + 1 < idx.length && idx[j + 1] === idx[j] + 1) j++;
+      parts.push(i === j ? CLASSES[idx[i]] : `${CLASSES[idx[i]]}–${CLASSES[idx[j]]}`);
+      i = j;
+    }
+    return parts.join(', ');
   };
 
   // ── Auth ──────────────────────────────────────────────────────
@@ -773,45 +805,19 @@ function App() {
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-
-    if (name === 'currentStatus') {
-      setOtherSchoolName('');
-      setOtherCollegeName('');
-      setChildParticipates('');
-      setChildName('');
-      setChildSchool('');
-      setChildOtherSchoolName('');
-      setChildSection('');
-      setFormData(prev => ({
-        ...prev,
-        currentStatus: value,
-        school: '', class: '', college: '', branch: '', companyName: '',
-        language: value === 'school' ? 'English' : ''
-      }));
-      return;
-    }
-    if (name === 'school') setOtherSchoolName('');
-    if (name === 'college') setOtherCollegeName('');
-
-    setFormData(prev => ({ ...prev, [name]: value }));
+    setFormData(prev => ({
+      ...prev,
+      [name]: value,
+      ...(name === 'city' ? { school: '' } : {})   // new area → choose the school again
+    }));
   };
 
-  const getAvailableLanguages = () => languagesFor(formData.currentStatus);
-
-  const getReferredBy = () => {
-    if (formData.currentStatus === 'school' && formData.school && formData.school !== 'Other') {
-      return schoolById.get(formData.school)?.devotee || '';
-    }
-    if (formData.currentStatus === 'college' && formData.college && formData.college !== 'Other') {
-      return collegeById.get(formData.college)?.devotee || '';
-    }
-    return '';
-  };
+  const getReferredBy = () => schoolById.get(formData.school)?.devotee || '';
 
   const getFilteredPayments = () => {
     let filtered = [...payments];
     if (selectedCityFilter) filtered = filtered.filter(p => cityOf(p) === selectedCityFilter);
-    if (selectedSchoolFilter) filtered = filtered.filter(p => schoolNameOf(p) === selectedSchoolFilter || collegeNameOf(p) === selectedSchoolFilter);
+    if (selectedSchoolFilter) filtered = filtered.filter(p => schoolNameOf(p) === selectedSchoolFilter);
     return filtered;
   };
 
@@ -830,46 +836,27 @@ function App() {
   };
   const getNonCapturedPayments = () => getFilteredPayments().filter(p => p.status !== 'captured');
 
-  const institutionOf = (p) =>
-    p.current_status === 'college' ? collegeNameOf(p)
-    : p.current_status === 'working' ? p.company_name
-    : p.current_status === 'other' ? '—'
-    : schoolNameOf(p);
-
-  const detailOf = (p) =>
-    p.current_status === 'college' ? p.branch
-    : (p.current_status === 'working' || p.current_status === 'other') ? '—'
-    : p.class;
-
-  const statusLabelOf = (p) =>
-    p.current_status === 'college' ? 'College'
-    : p.current_status === 'working' ? 'Working'
-    : p.current_status === 'school' ? 'School'
-    : p.current_status === 'other' ? 'Other' : '—';
-
   const getUniqueCitiesFromPayments = () =>
     [...new Set(payments.map(cityOf).filter(Boolean))].sort();
 
   const getUniqueSchoolsFromPayments = () => {
     const base = selectedCityFilter ? payments.filter(p => cityOf(p) === selectedCityFilter) : payments;
-    return [...new Set([...base.map(schoolNameOf), ...base.map(collegeNameOf)].filter(Boolean))].sort();
+    return [...new Set(base.map(schoolNameOf).filter(Boolean))].sort();
   };
 
   const exportToCSV = () => {
     const filteredPayments = getFilteredPayments();
     if (filteredPayments.length === 0) { alert('No payments to export with the current filters.'); return; }
 
-    const headers = ['Name', 'Current Status', 'City', 'School', 'Class', 'College', 'Branch', 'Company', 'Mobile', 'Language', 'Referred By', 'Amount', 'Payment ID', 'Date', 'Status', 'Book Given', 'Child Name', 'Child School', 'Child Section'];
+    const headers = ['Name', 'City/Area', 'School', 'Class', 'Section', 'Language', 'Mobile', 'Referred By', 'Amount', 'Payment ID', 'Date', 'Status', 'Book Given'];
     const rows = filteredPayments.map(p => [
-      csvCell(p.name), csvCell(p.current_status), csvCell(cityOf(p)), csvCell(schoolNameOf(p)), csvCell(p.class),
-      csvCell(collegeNameOf(p)), csvCell(p.branch), csvCell(p.company_name),
-      csvTextCell(p.mobile), csvCell(p.language), csvCell(p.referred_by), csvCell(p.amount), csvCell(p.payment_id),
-      csvCell(new Date(p.timestamp).toLocaleString()), csvCell(p.status), csvCell(p.book_given ? 'Yes' : 'No'),
-      csvCell(p.child_name), csvCell(childSchoolNameOf(p)), csvCell(p.child_section)
+      csvCell(p.name), csvCell(cityOf(p)), csvCell(schoolNameOf(p)), csvCell(p.class), csvCell(p.section),
+      csvCell(p.language), csvTextCell(p.mobile), csvCell(p.referred_by), csvCell(p.amount), csvCell(p.payment_id),
+      csvCell(new Date(p.timestamp).toLocaleString()), csvCell(p.status), csvCell(p.book_given ? 'Yes' : 'No')
     ]);
 
-    // BOM so Excel reads Telugu/Hindi names as UTF-8; CRLF line endings for Excel
-    const csvContent = '\uFEFF' + [headers.map(csvCell).join(','), ...rows.map(row => row.join(','))].join('\r\n');
+    // BOM so Excel reads Telugu names as UTF-8; CRLF line endings for Excel
+    const csvContent = '﻿' + [headers.map(csvCell).join(','), ...rows.map(row => row.join(','))].join('\r\n');
 
     let filename = `vec_payments_${new Date().toISOString().split('T')[0]}`;
     if (selectedCityFilter) filename += `_${selectedCityFilter.replace(/\s+/g, '_')}`;
@@ -891,7 +878,7 @@ function App() {
         style={{ background: 'linear-gradient(135deg, #1c0a00 0%, #7c2d12 40%, #991b1b 75%, #c2410c 100%)' }}>
         <div className="text-center">
           <div className="w-20 h-20 bg-white rounded-2xl flex items-center justify-center mx-auto mb-6 animate-pulse p-3 shadow-lg">
-            <img src="/iskcon_logo.png" alt="ISKCON Logo" className="w-full h-full object-contain" />
+            <img src="/vec_logo.png" alt="VEC 2027 logo" className="w-full h-full object-contain" />
           </div>
           <div className="flex gap-2 justify-center mb-4">
             {[0, 150, 300].map(delay => (
@@ -916,7 +903,7 @@ function App() {
           <div className="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center p-1.5 shadow">
-                <img src="/iskcon_logo.png" alt="ISKCON Logo" className="w-full h-full object-contain" />
+                <img src="/vec_logo.png" alt="VEC 2027 logo" className="w-full h-full object-contain" />
               </div>
               <div>
                 <h1 className="text-white font-bold text-lg leading-none">{CONTEST_NAME} Admin</h1>
@@ -975,10 +962,10 @@ function App() {
                   </select>
                 </div>
                 <div className="flex-1 min-w-[180px]">
-                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Filter by School / College</label>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Filter by School</label>
                   <select value={selectedSchoolFilter} onChange={(e) => setSelectedSchoolFilter(e.target.value)}
                     className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white focus:border-orange-400 outline-none">
-                    <option value="">All Schools / Colleges</option>
+                    <option value="">All Schools</option>
                     {getUniqueSchoolsFromPayments().map(school => <option key={school} value={school}>{school}</option>)}
                   </select>
                 </div>
@@ -1033,10 +1020,10 @@ function App() {
                     <th className="px-6 py-3 text-left font-semibold">Payment ID</th>
                     <th className="px-6 py-3 text-left font-semibold">Date</th>
                     <th className="px-6 py-3 text-left font-semibold">Book</th>
-                    <th className="px-6 py-3 text-left font-semibold">Status</th>
-                    <th className="px-6 py-3 text-left font-semibold">Institution</th>
-                    <th className="px-6 py-3 text-left font-semibold">Class / Branch</th>
-                    <th className="px-6 py-3 text-left font-semibold">Child</th>
+                    <th className="px-6 py-3 text-left font-semibold">School</th>
+                    <th className="px-6 py-3 text-left font-semibold">City / Area</th>
+                    <th className="px-6 py-3 text-left font-semibold">Class</th>
+                    <th className="px-6 py-3 text-left font-semibold">Language</th>
                     <th className="px-6 py-3 text-left font-semibold">Mobile</th>
                     <th className="px-6 py-3 text-left font-semibold">Amount</th>
                   </tr>
@@ -1062,14 +1049,10 @@ function App() {
                             </span>
                           </label>
                         </td>
-                        <td className="px-6 py-3 text-gray-600">{statusLabelOf(payment)}</td>
-                        <td className="px-6 py-3 text-gray-600 max-w-[200px] truncate">{institutionOf(payment)}</td>
-                        <td className="px-6 py-3 text-gray-600">{detailOf(payment)}</td>
-                        <td className="px-6 py-3 text-gray-600 text-xs">
-                          {payment.has_children
-                            ? <span className="space-y-0.5"><span className="block font-semibold text-gray-800">{payment.child_name}</span><span className="block text-gray-500">{childSchoolNameOf(payment)} · Sec {payment.child_section}</span></span>
-                            : <span className="text-gray-300">—</span>}
-                        </td>
+                        <td className="px-6 py-3 text-gray-600 max-w-[200px] truncate">{schoolNameOf(payment)}</td>
+                        <td className="px-6 py-3 text-gray-600">{cityOf(payment)}</td>
+                        <td className="px-6 py-3 text-gray-600">{classOf(payment)}</td>
+                        <td className="px-6 py-3 text-gray-600">{payment.language}</td>
                         <td className="px-6 py-3 text-gray-600">{payment.mobile}</td>
                         <td className="px-6 py-3">
                           <span className="bg-green-100 text-green-700 font-semibold px-2 py-0.5 rounded-lg text-xs">₹{payment.amount}</span>
@@ -1096,10 +1079,9 @@ function App() {
                 <thead>
                   <tr className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider">
                     <th className="px-6 py-3 text-left font-semibold">Name</th>
-                    <th className="px-6 py-3 text-left font-semibold">Status</th>
-                    <th className="px-6 py-3 text-left font-semibold">Institution</th>
-                    <th className="px-6 py-3 text-left font-semibold">Class / Branch</th>
-                    <th className="px-6 py-3 text-left font-semibold">Child</th>
+                    <th className="px-6 py-3 text-left font-semibold">School</th>
+                    <th className="px-6 py-3 text-left font-semibold">Class</th>
+                    <th className="px-6 py-3 text-left font-semibold">Language</th>
                     <th className="px-6 py-3 text-left font-semibold">Mobile</th>
                     <th className="px-6 py-3 text-left font-semibold">Payment</th>
                     <th className="px-6 py-3 text-left font-semibold">Date</th>
@@ -1108,20 +1090,15 @@ function App() {
                 <tbody className="divide-y divide-gray-50">
                   {getNonCapturedPayments().length === 0 ? (
                     <tr>
-                      <td colSpan="8" className="px-6 py-10 text-center text-gray-400">No pending or failed payments</td>
+                      <td colSpan="7" className="px-6 py-10 text-center text-gray-400">No pending or failed payments</td>
                     </tr>
                   ) : (
                     getNonCapturedPayments().map(payment => (
                       <tr key={payment.id} className="hover:bg-orange-50/40 transition-colors">
                         <td className="px-6 py-3 font-medium text-gray-900">{payment.name}</td>
-                        <td className="px-6 py-3 text-gray-600">{statusLabelOf(payment)}</td>
-                        <td className="px-6 py-3 text-gray-600 max-w-[200px] truncate">{institutionOf(payment)}</td>
-                        <td className="px-6 py-3 text-gray-600">{detailOf(payment)}</td>
-                        <td className="px-6 py-3 text-gray-600 text-xs">
-                          {payment.has_children
-                            ? <span className="space-y-0.5"><span className="block font-semibold text-gray-800">{payment.child_name}</span><span className="block text-gray-500">{childSchoolNameOf(payment)} · Sec {payment.child_section}</span></span>
-                            : <span className="text-gray-300">—</span>}
-                        </td>
+                        <td className="px-6 py-3 text-gray-600 max-w-[200px] truncate">{schoolNameOf(payment)}</td>
+                        <td className="px-6 py-3 text-gray-600">{classOf(payment)}</td>
+                        <td className="px-6 py-3 text-gray-600">{payment.language}</td>
                         <td className="px-6 py-3 text-gray-600">{payment.mobile}</td>
                         <td className="px-6 py-3">
                           <span className={`font-semibold px-2 py-0.5 rounded-lg text-xs ${payment.status === 'failed'
@@ -1355,7 +1332,7 @@ function App() {
             <div className="flex justify-between items-center px-6 py-5 border-b border-gray-100">
               <div>
                 <h2 className="text-lg font-bold text-gray-900">Others Sheet</h2>
-                <p className="text-sm text-gray-400 mt-0.5">Google Sheet for college, working, other — and school registrants not in the list above</p>
+                <p className="text-sm text-gray-400 mt-0.5">Google Sheet for students whose school was later deleted from the list above</p>
               </div>
               {othersSheetId && (
                 <a href={`https://docs.google.com/spreadsheets/d/${othersSheetId}/edit`} target="_blank" rel="noreferrer"
@@ -1388,42 +1365,101 @@ function App() {
             </div>
           </div>
 
-          {/* Colleges Management */}
+          {/* Form Languages */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+            <div className="px-6 py-5 border-b border-gray-100">
+              <h2 className="text-lg font-bold text-gray-900">Form Languages</h2>
+              <p className="text-sm text-gray-400 mt-0.5">Languages students can choose on the registration form</p>
+            </div>
+            <div className="px-6 py-5 flex flex-wrap items-center gap-4">
+              {LANGUAGES.map(lang => (
+                <label key={lang} className="flex items-center gap-2 text-sm font-medium text-gray-700 cursor-pointer">
+                  <input type="checkbox" className="w-4 h-4 accent-orange-600"
+                    checked={languageDraft.includes(lang)}
+                    onChange={(e) => setLanguageDraft(prev => e.target.checked
+                      ? LANGUAGES.filter(l => l === lang || prev.includes(l))
+                      : prev.filter(l => l !== lang))} />
+                  {lang}
+                </label>
+              ))}
+              <button onClick={saveLanguages}
+                disabled={languageDraft.join() === languages.join()}
+                className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 disabled:bg-gray-200 disabled:text-gray-400 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-all">
+                <Save size={15} /> Save
+              </button>
+              <span className="text-xs text-gray-400">Currently offered: {languages.join(' and ')}</span>
+            </div>
+          </div>
+
+          {/* WhatsApp Groups */}
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
             <div className="flex justify-between items-center px-6 py-5 border-b border-gray-100">
               <div>
-                <h2 className="text-lg font-bold text-gray-900">Colleges Management</h2>
-                <p className="text-sm text-gray-400 mt-0.5">{colleges.length} colleges</p>
+                <h2 className="text-lg font-bold text-gray-900">WhatsApp Groups</h2>
+                <p className="text-sm text-gray-400 mt-0.5">After paying, each student is shown the group for their city/area, class and language</p>
               </div>
-              <button onClick={() => setShowAddCollege(!showAddCollege)}
-                className="flex items-center gap-2 bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-all">
-                <Plus size={16} />
-                Add College
-              </button>
+              {!groupForm && (
+                <button onClick={openNewGroup}
+                  className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-all">
+                  <Plus size={16} /> Add Group
+                </button>
+              )}
             </div>
 
-            {showAddCollege && (
-              <div className="px-6 py-5 bg-gray-50 border-b border-gray-100">
-                <h3 className="text-sm font-bold text-gray-700 mb-4">Add New College</h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <input type="text" placeholder="College Name" value={newCollege.name}
-                    onChange={(e) => setNewCollege(prev => ({ ...prev, name: e.target.value }))}
-                    className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-orange-400 outline-none bg-white" />
-                  <select value={newCollege.city} onChange={(e) => setNewCollege(prev => ({ ...prev, city: e.target.value }))}
-                    className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-orange-400 outline-none bg-white">
-                    <option value="">Select City</option>
-                    {cities.map(city => <option key={city.id} value={city.name}>{city.name}</option>)}
-                  </select>
-                  <input type="text" placeholder="Devotee Name" value={newCollege.devotee}
-                    onChange={(e) => setNewCollege(prev => ({ ...prev, devotee: e.target.value }))}
-                    className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-orange-400 outline-none bg-white" />
+            {groupForm && (
+              <div className="px-6 py-5 bg-gray-50 border-b border-gray-100 space-y-4">
+                <h3 className="text-sm font-bold text-gray-700">{groupForm.id ? 'Edit WhatsApp Group' : 'New WhatsApp Group'}</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">City / Area</label>
+                    <select value={groupForm.cityId} onChange={(e) => setGroupForm(f => ({ ...f, cityId: e.target.value }))}
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:border-orange-400 outline-none">
+                      <option value="">All cities / areas</option>
+                      {cities.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Language</label>
+                    <select value={groupForm.language} onChange={(e) => setGroupForm(f => ({ ...f, language: e.target.value }))}
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:border-orange-400 outline-none">
+                      <option value="">Any language</option>
+                      {LANGUAGES.map(l => <option key={l} value={l}>{l}</option>)}
+                    </select>
+                  </div>
                 </div>
-                <div className="flex gap-2 mt-4">
-                  <button onClick={addCollegeToDb}
+                <div>
+                  <div className="flex items-center gap-3 mb-1.5">
+                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Classes</label>
+                    <button type="button" className="text-xs text-blue-600 hover:underline"
+                      onClick={() => setGroupForm(f => ({ ...f, classes: f.classes.length === CLASSES.length ? [] : [...CLASSES] }))}>
+                      {groupForm.classes.length === CLASSES.length ? 'Clear all' : 'Select all'}
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {CLASSES.map(c => {
+                      const on = groupForm.classes.includes(c);
+                      return (
+                        <button key={c} type="button"
+                          onClick={() => setGroupForm(f => ({ ...f, classes: on ? f.classes.filter(x => x !== c) : CLASSES.filter(x => x === c || f.classes.includes(x)) }))}
+                          className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-all ${on ? 'bg-orange-500 text-white border-orange-500' : 'bg-white text-gray-600 border-gray-200 hover:border-orange-300'}`}>
+                          {c}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">WhatsApp group invite link</label>
+                  <input type="url" placeholder="https://chat.whatsapp.com/…" value={groupForm.link}
+                    onChange={(e) => setGroupForm(f => ({ ...f, link: e.target.value }))}
+                    className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm bg-white focus:border-orange-400 outline-none" />
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={saveGroup}
                     className="flex items-center gap-2 bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-all">
-                    <Save size={15} /> Save College
+                    <Save size={15} /> Save Group
                   </button>
-                  <button onClick={() => { setShowAddCollege(false); setNewCollege({ name: '', city: '', devotee: '' }); }}
+                  <button onClick={() => setGroupForm(null)}
                     className="flex items-center gap-2 bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-xl text-sm font-semibold transition-all">
                     <X size={15} /> Cancel
                   </button>
@@ -1432,56 +1468,37 @@ function App() {
             )}
 
             <div className="divide-y divide-gray-50">
-              {colleges.map(college => (
-                <div key={college.id} className="px-6 py-4">
-                  {editingCollege?.id === college.id ? (
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <input type="text" value={editingCollege.name}
-                        onChange={(e) => setEditingCollege(prev => ({ ...prev, name: e.target.value }))}
-                        className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-orange-400 outline-none" />
-                      <select value={editingCollege.city}
-                        onChange={(e) => setEditingCollege(prev => ({ ...prev, city: e.target.value }))}
-                        className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-orange-400 outline-none">
-                        {cities.map(city => <option key={city.id} value={city.name}>{city.name}</option>)}
-                      </select>
-                      <input type="text" value={editingCollege.devotee}
-                        onChange={(e) => setEditingCollege(prev => ({ ...prev, devotee: e.target.value }))}
-                        className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-orange-400 outline-none" />
-                      <div className="flex gap-2 md:col-span-3">
-                        <button onClick={() => updateCollegeInDb(college.id)}
-                          className="flex items-center gap-2 bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-all">
-                          <Save size={15} /> Save
-                        </button>
-                        <button onClick={() => setEditingCollege(null)}
-                          className="flex items-center gap-2 bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-xl text-sm font-semibold transition-all">
-                          <X size={15} /> Cancel
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="flex justify-between items-start gap-4">
-                      <div className="min-w-0">
-                        <h3 className="font-semibold text-gray-900 truncate">{college.name}</h3>
-                        <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-1">
-                          <span className="text-xs text-gray-400">{college.city}</span>
-                          <span className="text-xs text-gray-400">by {college.devotee}</span>
-                        </div>
-                      </div>
-                      <div className="flex gap-2 shrink-0">
-                        <button onClick={() => setEditingCollege(college)}
-                          className="p-2 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-xl transition-colors">
-                          <Edit2 size={16} />
-                        </button>
-                        <button onClick={() => deleteCollegeFromDb(college.id)}
-                          className="p-2 bg-red-50 text-red-500 hover:bg-red-100 rounded-xl transition-colors">
-                          <Trash2 size={16} />
-                        </button>
-                      </div>
-                    </div>
-                  )}
+              {whatsappGroups.length === 0 && !groupForm && (
+                <p className="px-6 py-6 text-sm text-gray-400">No groups yet. Add one so students can join after paying.</p>
+              )}
+              {whatsappGroups.map(g => (
+                <div key={g.id} className="px-6 py-4 flex flex-wrap items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-gray-800">
+                      {cities.find(c => c.id === g.cityId)?.name || 'All cities / areas'}
+                      <span className="text-gray-300"> · </span>{describeClasses(g.classes)}
+                      <span className="text-gray-300"> · </span>{g.language || 'Any language'}
+                    </p>
+                    <a href={g.link} target="_blank" rel="noreferrer" className="text-xs text-green-700 hover:underline break-all">{g.link}</a>
+                  </div>
+                  <div className="flex gap-1">
+                    <button onClick={() => setGroupForm({ ...g, cityId: g.cityId || '' })} title="Edit"
+                      className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"><Edit2 size={15} /></button>
+                    <button onClick={() => deleteGroup(g)} title="Delete"
+                      className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={15} /></button>
+                  </div>
                 </div>
               ))}
             </div>
+
+            {missingGroups.length > 0 && (
+              <div className="px-6 py-4 bg-amber-50 border-t border-amber-100 text-sm text-amber-800">
+                <p className="font-semibold">{missingGroups.length} combination(s) have no group yet — those students won't see a link:</p>
+                <p className="mt-1 text-xs text-amber-700">
+                  {missingGroups.slice(0, 12).join(' · ')}{missingGroups.length > 12 ? ` · and ${missingGroups.length - 12} more` : ''}
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Admin Management */}
@@ -1562,7 +1579,7 @@ function App() {
 
       {/* Logo watermark */}
       <div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none overflow-hidden">
-        <img src="/iskcon_logo.png" alt="" style={{ width: '55vw', maxWidth: '500px', opacity: 0.06, filter: 'invert(1)' }} />
+        <img src="/vec_logo.png" alt="" style={{ width: '55vw', maxWidth: '500px', opacity: 0.06 }} />
       </div>
 
       {/* Glow blobs */}
@@ -1616,6 +1633,37 @@ function App() {
         </div>
       )}
 
+      {/* WhatsApp group popup (after successful payment) */}
+      {whatsapp && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl card-enter text-center">
+            <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl">✅</div>
+            <h2 className="text-2xl font-bold text-gray-900">Payment successful!</h2>
+            <p className="text-gray-500 text-sm mt-1 mb-6">Your registration is confirmed.</p>
+            {whatsapp.status === 'loading' ? (
+              <p className="flex items-center justify-center gap-2 text-gray-500 text-sm py-3">
+                <Loader2 className="animate-spin w-4 h-4" /> Finding your WhatsApp group…
+              </p>
+            ) : whatsapp.link ? (
+              <>
+                <p className="text-gray-700 text-sm mb-4">Join your class WhatsApp group for contest updates:</p>
+                <a href={whatsapp.link} target="_blank" rel="noreferrer"
+                  className="block w-full text-white font-bold py-3.5 rounded-2xl transition-all mb-3"
+                  style={{ background: '#25D366' }}>
+                  Join WhatsApp Group
+                </a>
+              </>
+            ) : (
+              <p className="text-gray-600 text-sm mb-4">Your WhatsApp group details will be shared with you soon.</p>
+            )}
+            <button onClick={() => setWhatsapp(null)}
+              className="w-full text-gray-400 hover:text-gray-600 py-2 text-sm transition-colors">
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Registration Card */}
       <div className="relative z-10 w-full max-w-md card-enter">
         <div className="bg-white rounded-3xl overflow-hidden"
@@ -1629,11 +1677,8 @@ function App() {
 
             <div className="relative z-10">
               <div className="w-20 h-20 bg-white rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg p-2">
-                <img src="/iskcon_logo.png" alt="ISKCON Logo" className="w-full h-full object-contain" />
+                <img src="/vec_logo.png" alt="VEC 2027 logo" className="w-full h-full object-contain" />
               </div>
-              <span className="inline-block bg-white/25 text-white/95 text-xs font-semibold px-3 py-1 rounded-full uppercase tracking-widest mb-3">
-                ISKCON ABIDS, Hyderabad
-              </span>
               <h1 className="text-white text-2xl font-bold mb-1">{CONTEST_NAME}</h1>
               <p className="text-orange-100 text-sm">Student Registration · ₹{PAYMENT_AMOUNT}</p>
             </div>
@@ -1649,208 +1694,61 @@ function App() {
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Current Status</label>
-              <select name="currentStatus" value={formData.currentStatus} onChange={handleInputChange}
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">City / Area</label>
+              <select name="city" value={formData.city} onChange={handleInputChange}
                 className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-orange-400 focus:bg-white outline-none transition-all text-gray-800 cursor-pointer">
-                <option value="">Select your current status</option>
-                <option value="school">Studying in a school</option>
-                <option value="college">Studying in a college</option>
-                <option value="working">Working</option>
-                <option value="other">Other</option>
+                <option value="">Select your city / area</option>
+                {cities.filter(c => schools.some(s => s.city === c.name)).map(c => (
+                  <option key={c.id} value={c.name}>{c.name}</option>
+                ))}
               </select>
             </div>
 
-            {/* School path */}
-            {formData.currentStatus === 'school' && (
-              <>
-                <div>
-                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">School</label>
-                  <select name="school" value={formData.school} onChange={handleInputChange}
-                    className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-orange-400 focus:bg-white outline-none transition-all text-gray-800 cursor-pointer">
-                    <option value="">Select your school</option>
-                    {schools.map(school => (
-                      <option key={school.id} value={school.id}>{school.name}</option>
-                    ))}
-                    <option value="Other">Other</option>
-                  </select>
-                </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">School</label>
+              <select name="school" value={formData.school} onChange={handleInputChange} disabled={!formData.city}
+                className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-orange-400 focus:bg-white outline-none transition-all text-gray-800 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
+                <option value="">{formData.city ? 'Select your school' : 'Select your city / area first'}</option>
+                {schoolsInCity.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            </div>
 
-                {formData.school === 'Other' && (
-                  <>
-                    <input type="text" placeholder="Enter your school name" value={otherSchoolName}
-                      onChange={(e) => setOtherSchoolName(e.target.value)}
-                      className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-orange-400 focus:bg-white outline-none transition-all text-gray-800 placeholder-gray-400" />
-                    <div className="flex items-start gap-3 bg-red-50 border-2 border-red-200 rounded-xl p-4">
-                      <span className="text-xl shrink-0 mt-0.5">⚠️</span>
-                      <p className="text-red-700 font-bold text-sm leading-snug">
-                        Please collect your booklet from ISKCON ABIDS temple only
-                      </p>
-                    </div>
-                  </>
-                )}
-
-                <div>
-                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Class</label>
-                  <select name="class" value={formData.class} onChange={handleInputChange}
-                    className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-orange-400 focus:bg-white outline-none transition-all text-gray-800 cursor-pointer">
-                    <option value="">Select your class</option>
-                    {classes.map(cls => <option key={cls} value={cls}>{cls}</option>)}
-                  </select>
-                </div>
-              </>
-            )}
-
-            {/* College path */}
-            {formData.currentStatus === 'college' && (
-              <>
-                <div>
-                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">College</label>
-                  <select name="college" value={formData.college} onChange={handleInputChange}
-                    className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-orange-400 focus:bg-white outline-none transition-all text-gray-800 cursor-pointer">
-                    <option value="">Select your college</option>
-                    {colleges.map(college => (
-                      <option key={college.id} value={college.id}>{college.name}</option>
-                    ))}
-                    <option value="Other">Other</option>
-                  </select>
-                </div>
-
-                {formData.college === 'Other' && (
-                  <input type="text" placeholder="Enter your college name" value={otherCollegeName}
-                    onChange={(e) => setOtherCollegeName(e.target.value)}
-                    className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-orange-400 focus:bg-white outline-none transition-all text-gray-800 placeholder-gray-400" />
-                )}
-
-                <div>
-                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Branch</label>
-                  <input type="text" name="branch" placeholder="Enter your branch / stream" value={formData.branch} onChange={handleInputChange}
-                    className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-orange-400 focus:bg-white outline-none transition-all text-gray-800 placeholder-gray-400" />
-                </div>
-
-                <div className="flex items-start gap-3 bg-red-50 border-2 border-red-200 rounded-xl p-4">
-                  <span className="text-xl shrink-0 mt-0.5">⚠️</span>
-                  <p className="text-red-700 font-bold text-sm leading-snug">
-                    Please collect your booklet from ISKCON ABIDS temple only
-                  </p>
-                </div>
-              </>
-            )}
-
-            {/* Working path */}
-            {formData.currentStatus === 'working' && (
-              <>
-                <div>
-                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Company Name</label>
-                  <input type="text" name="companyName" placeholder="Enter your company name" value={formData.companyName} onChange={handleInputChange}
-                    className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-orange-400 focus:bg-white outline-none transition-all text-gray-800 placeholder-gray-400" />
-                </div>
-              </>
-            )}
-
-            {/* Other path */}
-            {formData.currentStatus === 'other' && (
-              <></>
-            )}
-
-            {/* Children participation — shown for Working and Other */}
-            {(formData.currentStatus === 'working' || formData.currentStatus === 'other') && (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Class</label>
+                <select name="class" value={formData.class} onChange={handleInputChange}
+                  className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-orange-400 focus:bg-white outline-none transition-all text-gray-800 cursor-pointer">
+                  <option value="">Class</option>
+                  {classes.map(cls => <option key={cls} value={cls}>{cls}</option>)}
+                </select>
+              </div>
               <div>
                 <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
-                  Are your children also participating in this contest?
+                  Section <span className="normal-case font-normal text-gray-400">(optional)</span>
                 </label>
-                <div className="flex gap-3">
-                  <button type="button" onClick={() => setChildParticipates('yes')}
-                    className={`flex-1 py-3 rounded-xl font-semibold text-sm transition-all border-2 ${
-                      childParticipates === 'yes'
-                        ? 'bg-orange-500 text-white border-orange-500'
-                        : 'bg-gray-50 text-gray-700 border-gray-100 hover:border-orange-300'
-                    }`}>
-                    Yes
-                  </button>
-                  <button type="button" onClick={() => { setChildParticipates('no'); setChildName(''); setChildSchool(''); setChildOtherSchoolName(''); setChildSection(''); }}
-                    className={`flex-1 py-3 rounded-xl font-semibold text-sm transition-all border-2 ${
-                      childParticipates === 'no'
-                        ? 'bg-orange-500 text-white border-orange-500'
-                        : 'bg-gray-50 text-gray-700 border-gray-100 hover:border-orange-300'
-                    }`}>
-                    No
-                  </button>
-                </div>
+                <input type="text" name="section" placeholder="e.g. A" maxLength={20} value={formData.section} onChange={handleInputChange}
+                  className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-orange-400 focus:bg-white outline-none transition-all text-gray-800 placeholder-gray-400" />
               </div>
-            )}
-
-            {/* Child details */}
-            {(formData.currentStatus === 'working' || formData.currentStatus === 'other') && childParticipates === 'yes' && (
-              <>
-                <div>
-                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Child's Name</label>
-                  <input type="text" placeholder="Enter your child's name" value={childName}
-                    onChange={(e) => setChildName(e.target.value)}
-                    className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-orange-400 focus:bg-white outline-none transition-all text-gray-800 placeholder-gray-400" />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Child's School</label>
-                  <select value={childSchool} onChange={(e) => { setChildSchool(e.target.value); setChildOtherSchoolName(''); }}
-                    className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-orange-400 focus:bg-white outline-none transition-all text-gray-800 cursor-pointer">
-                    <option value="">Select school</option>
-                    {schools.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                    <option value="Other">Other</option>
-                  </select>
-                </div>
-
-                {childSchool === 'Other' && (
-                  <>
-                    <input type="text" placeholder="Enter school name" value={childOtherSchoolName}
-                      onChange={(e) => setChildOtherSchoolName(e.target.value)}
-                      className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-orange-400 focus:bg-white outline-none transition-all text-gray-800 placeholder-gray-400" />
-                    <div className="flex items-start gap-3 bg-red-50 border-2 border-red-200 rounded-xl p-4">
-                      <span className="text-xl shrink-0 mt-0.5">⚠️</span>
-                      <p className="text-red-700 font-bold text-sm leading-snug">
-                        Please collect your booklet from ISKCON ABIDS temple only
-                      </p>
-                    </div>
-                  </>
-                )}
-
-                <div>
-                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Class and Section</label>
-                  <input type="text" placeholder="Enter class and section (e.g. 5-A, 6-B)" value={childSection}
-                    onChange={(e) => setChildSection(e.target.value)}
-                    className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-orange-400 focus:bg-white outline-none transition-all text-gray-800 placeholder-gray-400" />
-                </div>
-              </>
-            )}
-
-            {/* Temple notice when children are not participating */}
-            {(formData.currentStatus === 'working' || formData.currentStatus === 'other') && childParticipates === 'no' && (
-              <div className="flex items-start gap-3 bg-red-50 border-2 border-red-200 rounded-xl p-4">
-                <span className="text-xl shrink-0 mt-0.5">⚠️</span>
-                <p className="text-red-700 font-bold text-sm leading-snug">
-                  Please collect your booklet from ISKCON ABIDS temple only
-                </p>
-              </div>
-            )}
+            </div>
 
             <div>
-              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Mobile</label>
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Language</label>
+              <select name="language" value={formData.language} onChange={handleInputChange} disabled={languages.length === 1}
+                className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-orange-400 focus:bg-white outline-none transition-all text-gray-800 cursor-pointer disabled:cursor-not-allowed">
+                {languages.length > 1 && <option value="">Select language</option>}
+                {languages.map(lang => <option key={lang} value={lang}>{lang}</option>)}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Phone Number</label>
               <input type="tel" name="mobile" inputMode="numeric" autoComplete="tel" maxLength={16}
                 placeholder="10-digit mobile number" value={formData.mobile} onChange={handleInputChange}
                 onBlur={() => setMobileTouched(true)}
                 className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-orange-400 focus:bg-white outline-none transition-all text-gray-800 placeholder-gray-400 font-medium" />
               {mobileTouched && formData.mobile.trim() && !normalizeIndianMobile(formData.mobile) && (
-                <p className="text-red-500 text-xs mt-1.5 font-medium">Please enter a valid 10-digit Indian mobile number.</p>
+                <p className="text-red-500 text-xs mt-1.5 font-medium">Please enter a valid 10-digit mobile number.</p>
               )}
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Preferred Language</label>
-              <select name="language" value={formData.language} onChange={handleInputChange}
-                disabled={!formData.currentStatus || formData.currentStatus === 'school'}
-                className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-orange-400 focus:bg-white outline-none transition-all text-gray-800 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
-                <option value="">Select language</option>
-                {getAvailableLanguages().map(lang => <option key={lang} value={lang}>{lang}</option>)}
-              </select>
             </div>
 
             {getReferredBy() && (
