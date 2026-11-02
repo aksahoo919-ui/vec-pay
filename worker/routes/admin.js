@@ -3,14 +3,13 @@ import { HttpError, json, readJson, text, need } from '../lib/http.js';
 import { NOW_SQL, insert, newId, isUniqueViolation, toPayment } from '../lib/db.js';
 import { mainAdminUsername } from '../lib/auth.js';
 import { hashPassword, PASSWORD_MIN_LENGTH } from '../lib/passwords.js';
-import { enabledLanguages } from '../lib/settings.js';
-import { LANGUAGES } from '../../shared/config.js';
+import { parseLanguages, languagesFromRequest } from '../lib/settings.js';
 
 // GET /api/admin/bootstrap — everything except payments
 export async function adminBootstrap(request, env, { username }) {
   const [cities, schools, admins, others] = await env.DB.batch([
     env.DB.prepare('SELECT id, name FROM cities ORDER BY name'),
-    env.DB.prepare('SELECT id, name, city, devotee, sheet_id, junior_link, senior_link FROM schools ORDER BY name'),
+    env.DB.prepare('SELECT id, name, city, devotee, sheet_id, junior_link, senior_link, languages FROM schools ORDER BY name'),
     env.DB.prepare('SELECT id, username FROM admins ORDER BY username'),
     env.DB.prepare("SELECT value FROM settings WHERE key = 'others_sheet_id'")
   ]);
@@ -18,8 +17,7 @@ export async function adminBootstrap(request, env, { username }) {
   return json({
     username,
     cities: cities.results,
-    schools: schools.results,
-    languages: await enabledLanguages(env),
+    schools: schools.results.map(toSchool),
     // The main admin (from the Cloudflare secrets) is listed first and can't be removed here
     admins: [...(main ? [{ id: 'main', username: main, main: true }] : []), ...admins.results],
     othersSheetId: others.results[0]?.value || ''
@@ -117,22 +115,26 @@ function institutionFields(body) {
     city: need(text(body.city, 100), 'Please select a city'),
     devotee: need(text(body.devotee, 100), 'Please enter the devotee name'),
     junior_link: whatsappLink(body.juniorLink, 'Junior'),
-    senior_link: whatsappLink(body.seniorLink, 'Senior')
+    senior_link: whatsappLink(body.seniorLink, 'Senior'),
+    languages: need(languagesFromRequest(body.languages), 'Choose at least one language for the school')
   };
 }
+
+// languages is stored as JSON text; the website gets an array
+const toSchool = (row) => ({ ...row, languages: parseLanguages(row.languages) });
 
 const institutionRoutes = (table, label) => ({
   async add(request, env) {
     const row = { id: newId(), ...institutionFields(await readJson(request)) };
     await insert(env.DB, table, row).run();
-    return json(table === 'schools' ? { ...row, sheet_id: null } : row);
+    return json(toSchool({ ...row, sheet_id: null }));
   },
   async update(request, env, { params }) {
     const fields = institutionFields(await readJson(request));
-    const res = await env.DB.prepare(`UPDATE ${table} SET name = ?, city = ?, devotee = ?, junior_link = ?, senior_link = ? WHERE id = ?`)
-      .bind(fields.name, fields.city, fields.devotee, fields.junior_link, fields.senior_link, params.id).run();
+    const res = await env.DB.prepare(`UPDATE ${table} SET name = ?, city = ?, devotee = ?, junior_link = ?, senior_link = ?, languages = ? WHERE id = ?`)
+      .bind(fields.name, fields.city, fields.devotee, fields.junior_link, fields.senior_link, fields.languages, params.id).run();
     if (!res.meta.changes) throw new HttpError(404, `${label} not found`);
-    return json({ id: params.id, ...fields });
+    return json(toSchool({ id: params.id, ...fields }));
   },
   async remove(request, env, { params }) {
     // Payments keep the name they were registered with (school_id becomes NULL).
@@ -143,20 +145,6 @@ const institutionRoutes = (table, label) => ({
 });
 
 export const schools = institutionRoutes('schools', 'School');
-
-// ── Languages offered on the form ──────────────────────────────
-
-// PUT /api/admin/settings/languages  { languages: ["English", "Telugu"] }
-export async function setLanguages(request, env) {
-  const { languages } = await readJson(request);
-  const chosen = LANGUAGES.filter(l => Array.isArray(languages) && languages.includes(l));
-  if (!chosen.length) throw new HttpError(400, 'Choose at least one language');
-  await env.DB.prepare(
-    `INSERT INTO settings (key, value, updated_at) VALUES ('languages', ?1, ${NOW_SQL})
-     ON CONFLICT(key) DO UPDATE SET value = ?1, updated_at = ${NOW_SQL}`
-  ).bind(JSON.stringify(chosen)).run();
-  return json({ languages: chosen });
-}
 
 // ── Admins ─────────────────────────────────────────────────────
 

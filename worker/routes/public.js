@@ -2,7 +2,7 @@
 import { HttpError, json, readJson, text, need } from '../lib/http.js';
 import { insert, newId } from '../lib/db.js';
 import { createOrder, checkoutSignatureIsValid } from '../lib/razorpay.js';
-import { enabledLanguages } from '../lib/settings.js';
+import { parseLanguages } from '../lib/settings.js';
 import { findWhatsappLink } from '../lib/whatsapp.js';
 import { normalizeIndianMobile } from '../../shared/mobile.js';
 import { REGISTRATION_FEE_RUPEES, REGISTRATION_FEE_PAISE, CLASSES } from '../../shared/config.js';
@@ -11,13 +11,12 @@ import { REGISTRATION_FEE_RUPEES, REGISTRATION_FEE_PAISE, CLASSES } from '../../
 export async function bootstrap(request, env) {
   const [cities, schools] = await env.DB.batch([
     env.DB.prepare('SELECT id, name FROM cities ORDER BY name'),
-    env.DB.prepare('SELECT id, name, city, devotee FROM schools ORDER BY name')
+    env.DB.prepare('SELECT id, name, city, devotee, languages FROM schools ORDER BY name')
   ]);
   return json({
     razorpayKeyId: env.RAZORPAY_KEY_ID || '',
     cities: cities.results,
-    schools: schools.results,
-    languages: await enabledLanguages(env)
+    schools: schools.results.map(s => ({ ...s, languages: parseLanguages(s.languages) }))
   });
 }
 
@@ -27,7 +26,7 @@ async function buildRegistration(env, body) {
   const name = need(text(body.name, 100), 'Please enter the full name');
 
   if (typeof body.schoolId !== 'string' || !UUID_RE.test(body.schoolId)) throw new HttpError(400, 'Please select a school');
-  const school = await env.DB.prepare('SELECT id, name, city, devotee FROM schools WHERE id = ?').bind(body.schoolId).first();
+  const school = await env.DB.prepare('SELECT id, name, city, devotee, languages FROM schools WHERE id = ?').bind(body.schoolId).first();
   if (!school) throw new HttpError(400, 'The selected school no longer exists. Please refresh the page and choose again.');
 
   const cls = need(CLASSES.includes(body.class) ? body.class : null, 'Please select the class');
@@ -35,8 +34,8 @@ async function buildRegistration(env, body) {
   const rawSection = typeof body.section === 'string' ? body.section.trim() : '';
   if (rawSection.length > 20) throw new HttpError(400, 'Section is too long');
 
-  const languages = await enabledLanguages(env);
-  const language = need(languages.includes(body.language) ? body.language : null, 'Please select a language');
+  // Only the languages this school offers
+  const language = need(parseLanguages(school.languages).includes(body.language) ? body.language : null, 'Please select a language');
 
   const mobile = need(normalizeIndianMobile(body.mobile), 'Please enter a valid 10-digit mobile number');
 

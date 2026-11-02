@@ -66,16 +66,13 @@ function App() {
   const classes = CLASSES;
   const [payments, setPayments] = useState([]);
 
-  // Languages offered on the form (admin setting)
-  const [languages, setLanguages] = useState(LANGUAGES);
-  const [languageDraft, setLanguageDraft] = useState(LANGUAGES);
 
   // WhatsApp group shown after payment
   const [whatsapp, setWhatsapp] = useState(null);     // null | { status: 'loading' | 'ready', group, link }
 
   const [editingSchool, setEditingSchool] = useState(null);
   const [showAddSchool, setShowAddSchool] = useState(false);
-  const EMPTY_SCHOOL = { name: '', city: '', devotee: '', juniorLink: '', seniorLink: '' };
+  const EMPTY_SCHOOL = { name: '', city: '', devotee: '', juniorLink: '', seniorLink: '', languages: [...LANGUAGES] };
   const [newSchool, setNewSchool] = useState(EMPTY_SCHOOL);
 
   // editingCity is {id, name} | null
@@ -136,14 +133,21 @@ function App() {
     [schools, formData.city]
   );
 
-  // If only one language is offered, pick it automatically
+  // Languages offered by the chosen school (set per school by the admin)
+  const schoolLanguages = useMemo(
+    () => schoolById.get(formData.school)?.languages || [],
+    [schoolById, formData.school]
+  );
+
+  // If the school offers only one language, pick it automatically; drop a
+  // language the newly chosen school doesn't offer.
   useEffect(() => {
     setFormData(prev => {
-      if (languages.length === 1 && prev.language !== languages[0]) return { ...prev, language: languages[0] };
-      if (prev.language && !languages.includes(prev.language)) return { ...prev, language: '' };
+      if (schoolLanguages.length === 1 && prev.language !== schoolLanguages[0]) return { ...prev, language: schoolLanguages[0] };
+      if (prev.language && !schoolLanguages.includes(prev.language)) return { ...prev, language: '' };
       return prev;
     });
-  }, [languages]);
+  }, [schoolLanguages]);
 
   // Clear error automatically once the form becomes complete
   useEffect(() => {
@@ -194,7 +198,6 @@ function App() {
       setRazorpayKeyId(data.razorpayKeyId);
       setCities(data.cities);
       setSchools(data.schools);
-      setLanguages(data.languages);
     } catch (error) {
       console.error('Error loading page data:', error);
       setPayError('Could not load the school list. Please refresh the page.');
@@ -206,8 +209,6 @@ function App() {
     setAdminUser(username);
     setCities(data.cities);
     setSchools(data.schools);
-    setLanguages(data.languages);
-    setLanguageDraft(data.languages);
     setAdmins(data.admins);
     setOthersSheetId(data.othersSheetId);
     setIsAdmin(true);
@@ -316,13 +317,15 @@ function App() {
       alert('Please fill in the school name, city and devotee name');
       return;
     }
+    if (!newSchool.languages.length) { alert('Choose at least one language for the school'); return; }
 
     try {
       const data = await adminApi('/api/admin/schools', {
         method: 'POST',
         body: {
           name: newSchool.name.trim(), city: newSchool.city.trim(), devotee: newSchool.devotee.trim(),
-          juniorLink: newSchool.juniorLink.trim(), seniorLink: newSchool.seniorLink.trim()
+          juniorLink: newSchool.juniorLink.trim(), seniorLink: newSchool.seniorLink.trim(),
+          languages: newSchool.languages
         }
       });
       setSchools([...schools, data]);
@@ -342,7 +345,8 @@ function App() {
         method: 'PUT',
         body: {
           name: editingSchool.name, city: editingSchool.city, devotee: editingSchool.devotee,
-          juniorLink: (editingSchool.junior_link || '').trim(), seniorLink: (editingSchool.senior_link || '').trim()
+          juniorLink: (editingSchool.junior_link || '').trim(), seniorLink: (editingSchool.senior_link || '').trim(),
+          languages: editingSchool.languages
         }
       });
       setSchools(schools.map(s => s.id === id ? { ...s, ...data } : s));
@@ -688,20 +692,6 @@ function App() {
     rzp.open();
   };
 
-  // ── Form languages (admin) ────────────────────────────────────
-
-  const saveLanguages = async () => {
-    if (!languageDraft.length) { alert('Choose at least one language'); return; }
-    try {
-      const data = await adminApi('/api/admin/settings/languages', { method: 'PUT', body: { languages: languageDraft } });
-      setLanguages(data.languages);
-      setLanguageDraft(data.languages);
-      alert('Languages saved. The registration form now offers: ' + data.languages.join(' and '));
-    } catch (err) {
-      alert(`Could not save languages: ${err.message}`);
-    }
-  };
-
   // ── Auth ──────────────────────────────────────────────────────
 
   const handleLogin = async (e) => {
@@ -733,6 +723,22 @@ function App() {
   };
 
   // ── Helpers ───────────────────────────────────────────────────
+
+  // English / Telugu checkboxes for a school's languages
+  const languageCheckboxes = (selected, onChange) => (
+    <div className="flex flex-wrap items-center gap-4">
+      <span className="text-xs font-semibold text-gray-500">Languages offered:</span>
+      {LANGUAGES.map(lang => (
+        <label key={lang} className="flex items-center gap-1.5 text-sm text-gray-700 cursor-pointer">
+          <input type="checkbox" className="w-4 h-4 accent-orange-600" checked={selected.includes(lang)}
+            onChange={(e) => onChange(e.target.checked
+              ? LANGUAGES.filter(l => l === lang || selected.includes(l))
+              : selected.filter(l => l !== lang))} />
+          {lang}
+        </label>
+      ))}
+    </div>
+  );
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -1177,6 +1183,9 @@ function App() {
                     onChange={(e) => setNewSchool(prev => ({ ...prev, seniorLink: e.target.value }))}
                     className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-orange-400 outline-none bg-white" />
                 </div>
+                <div className="mt-4">
+                  {languageCheckboxes(newSchool.languages, (languages) => setNewSchool(prev => ({ ...prev, languages })))}
+                </div>
                 <div className="flex gap-2 mt-4">
                   <button onClick={addSchoolToDb}
                     className="flex items-center gap-2 bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-all">
@@ -1220,6 +1229,9 @@ function App() {
                             className="mt-1 w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-normal focus:border-orange-400 outline-none" />
                         </label>
                       </div>
+                      <div className="md:col-span-3">
+                        {languageCheckboxes(editingSchool.languages || [], (languages) => setEditingSchool(prev => ({ ...prev, languages })))}
+                      </div>
                       <div className="flex gap-2 md:col-span-3">
                         <button onClick={() => updateSchoolInDb(school.id)}
                           className="flex items-center gap-2 bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-all">
@@ -1239,6 +1251,7 @@ function App() {
                           <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-1">
                             <span className="text-xs text-gray-400">{school.city}</span>
                             <span className="text-xs text-gray-400">by {school.devotee}</span>
+                            <span className="text-xs text-gray-400">{(school.languages || []).join(' & ')}</span>
                           </div>
                           <div className="flex flex-wrap gap-2 mt-2">
                             {[['Junior', school.junior_link], ['Senior', school.senior_link]].map(([label, link]) => link ? (
@@ -1333,32 +1346,6 @@ function App() {
                   </button>
                 </>
               )}
-            </div>
-          </div>
-
-          {/* Form Languages */}
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-            <div className="px-6 py-5 border-b border-gray-100">
-              <h2 className="text-lg font-bold text-gray-900">Form Languages</h2>
-              <p className="text-sm text-gray-400 mt-0.5">Languages students can choose on the registration form</p>
-            </div>
-            <div className="px-6 py-5 flex flex-wrap items-center gap-4">
-              {LANGUAGES.map(lang => (
-                <label key={lang} className="flex items-center gap-2 text-sm font-medium text-gray-700 cursor-pointer">
-                  <input type="checkbox" className="w-4 h-4 accent-orange-600"
-                    checked={languageDraft.includes(lang)}
-                    onChange={(e) => setLanguageDraft(prev => e.target.checked
-                      ? LANGUAGES.filter(l => l === lang || prev.includes(l))
-                      : prev.filter(l => l !== lang))} />
-                  {lang}
-                </label>
-              ))}
-              <button onClick={saveLanguages}
-                disabled={languageDraft.join() === languages.join()}
-                className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 disabled:bg-gray-200 disabled:text-gray-400 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-all">
-                <Save size={15} /> Save
-              </button>
-              <span className="text-xs text-gray-400">Currently offered: {languages.join(' and ')}</span>
             </div>
           </div>
 
@@ -1596,10 +1583,12 @@ function App() {
 
             <div>
               <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Language</label>
-              <select name="language" value={formData.language} onChange={handleInputChange} disabled={languages.length === 1}
-                className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-orange-400 focus:bg-white outline-none transition-all text-gray-800 cursor-pointer disabled:cursor-not-allowed">
-                {languages.length > 1 && <option value="">Select language</option>}
-                {languages.map(lang => <option key={lang} value={lang}>{lang}</option>)}
+              <select name="language" value={formData.language} onChange={handleInputChange}
+                disabled={schoolLanguages.length <= 1}
+                className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-orange-400 focus:bg-white outline-none transition-all text-gray-800 cursor-pointer disabled:cursor-not-allowed disabled:opacity-70">
+                {schoolLanguages.length === 0 && <option value="">Select your school first</option>}
+                {schoolLanguages.length > 1 && <option value="">Select language</option>}
+                {schoolLanguages.map(lang => <option key={lang} value={lang}>{lang}</option>)}
               </select>
             </div>
 

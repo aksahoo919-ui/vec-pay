@@ -7,10 +7,10 @@ export const CONTEST_NAME = 'Value Education Contest 2027';
 export const REGISTRATION_FEE_RUPEES = 200;
 export const REGISTRATION_FEE_PAISE = REGISTRATION_FEE_RUPEES * 100;
 
-export const CLASSES = ['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th', '10th'];
+export const CLASSES = ['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th', '10th', '11th', '12th'];
 
 // Languages the contest can be taken in. The admin chooses which of these
-// are offered on the form.
+// each school offers.
 export const LANGUAGES = ['English', 'Telugu'];
 
 // WhatsApp groups: classes up to and including JUNIOR_UP_TO get the
