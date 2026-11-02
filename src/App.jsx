@@ -1,8 +1,25 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { User, LogOut, Plus, Edit2, Trash2, Save, X, Download, ExternalLink, FileSpreadsheet, RefreshCw, Loader2, ChevronDown } from 'lucide-react';
 import { supabase } from './config/supabase';
+import { CONTEST_NAME, REGISTRATION_FEE_RUPEES, CLASSES, languagesFor } from '../shared/config.js';
+import { normalizeIndianMobile } from '../shared/mobile.js';
 
-const PAYMENT_AMOUNT = 30;
+const PAYMENT_AMOUNT = REGISTRATION_FEE_RUPEES;
+
+// Makes a value safe for a CSV cell: doubles inner quotes and stops Excel /
+// Google Sheets from running user-typed text that starts with = + - @ as a formula.
+const csvCell = (value) => {
+  let s = value === null || value === undefined ? '' : String(value);
+  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+  return `"${s.replace(/"/g, '""')}"`;
+};
+
+// Keeps long digit strings (mobile numbers) as text so Excel doesn't turn
+// them into scientific notation.
+const csvTextCell = (value) => {
+  const s = value === null || value === undefined ? '' : String(value);
+  return /^\d+$/.test(s) ? `"=""${s}"""` : csvCell(s);
+};
 
 // Single shared promise so mount-preload and click-time never inject twice.
 // Resolves true on success, false on failure (so callers can recover instead of hang).
@@ -50,7 +67,7 @@ function App() {
   const [cities, setCities] = useState([]);
   const [schools, setSchools] = useState([]);
   const [colleges, setColleges] = useState([]);
-  const [classes] = useState(['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th', '10th', '11th', '12th']);
+  const classes = CLASSES;
   const [payments, setPayments] = useState([]);
 
   const [editingSchool, setEditingSchool] = useState(null);
@@ -82,13 +99,17 @@ function App() {
   const [newAdminEmail, setNewAdminEmail] = useState('');
 
   // Payment state
-  const [registrationSaved, setRegistrationSaved] = useState(false);
+  // The registration last saved on the server, so an unchanged form reuses
+  // its Razorpay order while an edited form creates a fresh registration.
+  const [lastRegistration, setLastRegistration] = useState(null); // { signature, orderId, mobile }
+  const [mobileTouched, setMobileTouched] = useState(false);
   const [paymentDone, setPaymentDone] = useState(false);
   const [payError, setPayError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const isFormComplete = useMemo(() => {
-    if (!formData.name || !formData.currentStatus || !formData.mobile || !formData.language) return false;
+    if (!formData.name.trim() || !formData.currentStatus || !formData.language) return false;
+    if (!normalizeIndianMobile(formData.mobile)) return false;
     if (formData.currentStatus === 'school') {
       if (!formData.school) return false;
       if (formData.school === 'Other' && !otherSchoolName.trim()) return false;
@@ -108,6 +129,16 @@ function App() {
     }
     return true;
   }, [formData, otherSchoolName, otherCollegeName, childParticipates, childName, childSchool, childOtherSchoolName, childSection]);
+
+  // Payments are linked to schools/colleges by ID, so look up the current
+  // name and city. Falls back to the name saved at registration time for
+  // "Other" entries and for schools/colleges that were deleted.
+  const schoolById = useMemo(() => new Map(schools.map(s => [s.id, s])), [schools]);
+  const collegeById = useMemo(() => new Map(colleges.map(c => [c.id, c])), [colleges]);
+  const schoolNameOf = (p) => schoolById.get(p.school_id)?.name || p.school || '';
+  const collegeNameOf = (p) => collegeById.get(p.college_id)?.name || p.college || '';
+  const childSchoolNameOf = (p) => schoolById.get(p.child_school_id)?.name || p.child_school || '';
+  const cityOf = (p) => schoolById.get(p.school_id)?.city || collegeById.get(p.college_id)?.city || p.city || '';
 
   // Clear error automatically once the form becomes complete
   useEffect(() => {
@@ -357,11 +388,12 @@ function App() {
       const res = await fetch('/api/sheets-create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ schoolId: school.id, schoolName: school.name })
+        body: JSON.stringify({ schoolId: school.id })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed');
       setSchools(prev => prev.map(s => s.id === school.id ? { ...s, sheet_id: data.sheetId } : s));
+      if (data.warnings?.length) alert(`Sheet for "${school.name}" was created, but:\n\n${data.warnings.join('\n')}`);
     } catch (err) {
       console.error('Create sheet failed:', err);
       alert(`Could not create Google Sheet for "${school.name}": ${err.message}`);
@@ -382,7 +414,9 @@ function App() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed');
       setOthersSheetId(data.sheetId);
-      alert('Others Sheet created and shared with your Gmail!');
+      alert(data.warnings?.length
+        ? `Others Sheet was created, but:\n\n${data.warnings.join('\n')}`
+        : 'Others Sheet created and shared with your Gmail!');
     } catch (err) {
       console.error('Create others sheet failed:', err);
       alert(`Could not create Others Sheet: ${err.message}`);
@@ -398,7 +432,7 @@ function App() {
       const res = await fetch('/api/sheets-sync-push', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ sheetId: school.sheet_id, schoolName: school.name })
+        body: JSON.stringify({ schoolId: school.id })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed');
@@ -418,7 +452,7 @@ function App() {
       const res = await fetch('/api/sheets-sync-push', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ sheetId: othersSheetId, type: 'others' })
+        body: JSON.stringify({ type: 'others' })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed');
@@ -504,9 +538,9 @@ function App() {
       };
 
       for (const school of schoolsWithSheet) {
-        await pushOne({ sheetId: school.sheet_id, schoolName: school.name }, school.name);
+        await pushOne({ schoolId: school.id }, school.name);
       }
-      if (othersSheetId) await pushOne({ sheetId: othersSheetId, type: 'others' }, 'Others');
+      if (othersSheetId) await pushOne({ type: 'others' }, 'Others');
 
       let msg = `Bulk export complete. Added ${totalAdded} new record(s) across ${targets} sheet(s).`;
       if (failures.length) msg += `\n\nFailed for: ${failures.join(', ')}`;
@@ -569,8 +603,10 @@ function App() {
         headers: { Authorization: `Bearer ${token}` }
       });
       const data = await res.json();
-      if (data.error) throw new Error(data.error);
-      alert(`Done! ${data.succeeded} of ${data.total} sheet(s) are now public.${data.failed ? `\n${data.failed} failed.` : ''}`);
+      if (!res.ok || data.error) throw new Error(data.error || 'Failed');
+      let msg = `Done! ${data.succeeded} of ${data.total} sheet(s) are now public.`;
+      if (data.failed) msg += `\n\n${data.failed} failed:\n${(data.failures || []).join('\n')}`;
+      alert(msg);
     } catch (err) {
       alert(`Error: ${err.message}`);
     } finally {
@@ -658,39 +694,6 @@ function App() {
 
   // ── Payment ───────────────────────────────────────────────────
 
-  const savePaymentToDb = async (paymentData) => {
-    try {
-      const { error } = await supabase.from('payments').insert({
-        name: paymentData.name,
-        current_status: paymentData.currentStatus,
-        city: paymentData.city,
-        school: paymentData.school,
-        class: paymentData.class,
-        college: paymentData.college,
-        branch: paymentData.branch,
-        company_name: paymentData.companyName,
-        mobile: paymentData.mobile,
-        language: paymentData.language,
-        referred_by: paymentData.referredBy,
-        amount: paymentData.amount,
-        payment_id: paymentData.paymentId,
-        status: paymentData.status,
-        book_given: false,
-        has_children: paymentData.hasChildren || false,
-        child_name: paymentData.childName || '',
-        child_school: paymentData.childSchool || '',
-        child_section: paymentData.childSection || '',
-        timestamp: new Date().toISOString()
-      });
-
-      if (error) throw error;
-      return true;
-    } catch (error) {
-      console.error('Error saving payment:', error);
-      return false;
-    }
-  };
-
   // ── City CRUD ─────────────────────────────────────────────────
 
   const addCityToDb = async () => {
@@ -726,8 +729,12 @@ function App() {
       const { error: schoolError } = await supabase.from('schools').update({ city: trimmedNewName }).eq('city', oldCityName);
       if (schoolError) throw schoolError;
 
+      const { error: collegeError } = await supabase.from('colleges').update({ city: trimmedNewName }).eq('city', oldCityName);
+      if (collegeError) throw collegeError;
+
       setCities(cities.map(c => c.id === cityId ? { ...c, name: trimmedNewName } : c).sort((a, b) => a.name.localeCompare(b.name)));
       setSchools(schools.map(s => s.city === oldCityName ? { ...s, city: trimmedNewName } : s));
+      setColleges(colleges.map(c => c.city === oldCityName ? { ...c, city: trimmedNewName } : c));
       setEditingCity(null);
       setEditingCityValue('');
       alert('City updated successfully!');
@@ -758,63 +765,37 @@ function App() {
 
   // ── Registration + Payment ────────────────────────────────────
 
-  const handleSubmit = async () => {
-    if (!formData.name || !formData.currentStatus || !formData.mobile || !formData.language) return false;
-
-    let school = '', cls = '', college = '', branch = '', companyName = '', city = '';
-
-    if (formData.currentStatus === 'school') {
-      if (!formData.school) return false;
-      if (formData.school === 'Other' && !otherSchoolName.trim()) return false;
-      if (!formData.class) return false;
-      school = formData.school === 'Other' ? otherSchoolName.trim() : formData.school;
-      cls = formData.class;
-      city = formData.school === 'Other' ? '' : (schools.find(s => s.name === formData.school)?.city || '');
-    } else if (formData.currentStatus === 'college') {
-      if (!formData.college) return false;
-      if (formData.college === 'Other' && !otherCollegeName.trim()) return false;
-      if (!formData.branch.trim()) return false;
-      college = formData.college === 'Other' ? otherCollegeName.trim() : formData.college;
-      branch = formData.branch.trim();
-      city = formData.college === 'Other' ? '' : (colleges.find(c => c.name === formData.college)?.city || '');
-    } else if (formData.currentStatus === 'working') {
-      if (!formData.companyName.trim()) return false;
-      companyName = formData.companyName.trim();
-    }
-
-    if (['working', 'other'].includes(formData.currentStatus) && childParticipates === 'yes') {
-      if (!childName.trim()) return false;
-      if (!childSchool) return false;
-      if (childSchool === 'Other' && !childOtherSchoolName.trim()) return false;
-      if (!childSection.trim()) return false;
-    }
-
-    const hasChildren = ['working', 'other'].includes(formData.currentStatus) && childParticipates === 'yes';
-    const saved = await savePaymentToDb({
-      name: formData.name,
-      currentStatus: formData.currentStatus,
-      city,
-      school,
-      class: cls,
-      college,
-      branch,
-      companyName,
-      mobile: formData.mobile,
+  // Everything the server needs to create the registration. The server
+  // re-checks all of it and looks up school/college details by ID itself.
+  const buildRegistrationPayload = () => {
+    const status = formData.currentStatus;
+    const withChildren = ['working', 'other'].includes(status) && childParticipates === 'yes';
+    return {
+      name: formData.name.trim(),
+      currentStatus: status,
+      mobile: normalizeIndianMobile(formData.mobile) || formData.mobile.trim(),
       language: formData.language,
-      referredBy: getReferredBy(),
-      amount: PAYMENT_AMOUNT,
-      paymentId: 'pending',
-      status: 'pending',
-      hasChildren,
-      childName: hasChildren ? childName.trim() : '',
-      childSchool: hasChildren ? (childSchool === 'Other' ? childOtherSchoolName.trim() : childSchool) : '',
-      childSection: hasChildren ? childSection.trim() : ''
-    });
-
-    return saved;
+      schoolId: status === 'school' ? formData.school : '',
+      otherSchoolName: status === 'school' && formData.school === 'Other' ? otherSchoolName.trim() : '',
+      class: status === 'school' ? formData.class : '',
+      collegeId: status === 'college' ? formData.college : '',
+      otherCollegeName: status === 'college' && formData.college === 'Other' ? otherCollegeName.trim() : '',
+      branch: status === 'college' ? formData.branch.trim() : '',
+      companyName: status === 'working' ? formData.companyName.trim() : '',
+      hasChildren: withChildren,
+      childName: withChildren ? childName.trim() : '',
+      childSchoolId: withChildren ? childSchool : '',
+      childOtherSchoolName: withChildren && childSchool === 'Other' ? childOtherSchoolName.trim() : '',
+      childSection: withChildren ? childSection.trim() : ''
+    };
   };
 
   const handlePayClick = async () => {
+    if (formData.mobile.trim() && !normalizeIndianMobile(formData.mobile)) {
+      setMobileTouched(true);
+      setPayError('Please enter a valid 10-digit mobile number.');
+      return;
+    }
     if (!isFormComplete) {
       setPayError('Please fill in all the details before proceeding.');
       return;
@@ -822,40 +803,39 @@ function App() {
     setPayError('');
     setIsSubmitting(true);
 
-    // Order fetch with a timeout so a dead/flaky connection can't stall indefinitely
-    const createOrder = async () => {
+    const payload = buildRegistrationPayload();
+    const signature = JSON.stringify(payload);
+
+    // Reuse the saved registration if nothing changed; otherwise save a new
+    // one so corrected details are what gets recorded.
+    let registration = lastRegistration?.signature === signature ? lastRegistration : null;
+
+    if (!registration) {
+      // Timeout so a dead/flaky connection can't stall indefinitely
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 20000);
       try {
-        const res = await fetch('/api/razorpay-create-order', {
+        const res = await fetch('/api/register', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ amount: PAYMENT_AMOUNT * 100 }),
+          body: JSON.stringify(payload),
           signal: controller.signal
         });
-        return await res.json();
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.orderId) {
+          setPayError(data.error || 'Could not start payment. Please check your connection and try again.');
+          setIsSubmitting(false);
+          return;
+        }
+        registration = { signature, orderId: data.orderId, mobile: data.mobile };
+        setLastRegistration(registration);
       } catch {
-        return null;
+        setPayError('Could not start payment. Please check your connection and try again.');
+        setIsSubmitting(false);
+        return;
       } finally {
         clearTimeout(timer);
       }
-    };
-
-    // Run the DB save (if not already done) and order creation in parallel — they're independent
-    const savePromise = registrationSaved ? Promise.resolve(true) : handleSubmit();
-    const [saved, orderData] = await Promise.all([savePromise, createOrder()]);
-
-    if (!saved) {
-      setPayError('Failed to save registration. Please check your connection and try again.');
-      setIsSubmitting(false);
-      return;
-    }
-    setRegistrationSaved(true);
-
-    if (!orderData?.orderId) {
-      setPayError('Could not start payment. Please check your connection and try again.');
-      setIsSubmitting(false);
-      return;
     }
 
     // Script is preloaded on mount; on a slow connection this awaits the same in-flight load
@@ -869,12 +849,12 @@ function App() {
 
     const rzp = new window.Razorpay({
       key: import.meta.env.VITE_RAZORPAY_KEY_ID,
-      order_id: orderData.orderId,
+      order_id: registration.orderId,
       amount: PAYMENT_AMOUNT * 100,
       currency: 'INR',
-      name: 'ŚREṢṬHA Contest',
+      name: CONTEST_NAME,
       description: `Student Registration · ₹${PAYMENT_AMOUNT}`,
-      prefill: { name: formData.name, contact: formData.mobile },
+      prefill: { name: payload.name, contact: registration.mobile },
       theme: { color: '#ea580c' },
       handler: () => setPaymentDone(true),
       modal: { ondismiss: () => {} }
@@ -935,26 +915,22 @@ function App() {
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
-  const getAvailableLanguages = () => {
-    if (formData.currentStatus === 'school') return ['English'];
-    if (['college', 'working', 'other'].includes(formData.currentStatus)) return ['English', 'Telugu'];
-    return [];
-  };
+  const getAvailableLanguages = () => languagesFor(formData.currentStatus);
 
   const getReferredBy = () => {
     if (formData.currentStatus === 'school' && formData.school && formData.school !== 'Other') {
-      return schools.find(s => s.name === formData.school)?.devotee || '';
+      return schoolById.get(formData.school)?.devotee || '';
     }
     if (formData.currentStatus === 'college' && formData.college && formData.college !== 'Other') {
-      return colleges.find(c => c.name === formData.college)?.devotee || '';
+      return collegeById.get(formData.college)?.devotee || '';
     }
     return '';
   };
 
   const getFilteredPayments = () => {
     let filtered = [...payments];
-    if (selectedCityFilter) filtered = filtered.filter(p => p.city === selectedCityFilter);
-    if (selectedSchoolFilter) filtered = filtered.filter(p => p.school === selectedSchoolFilter || p.college === selectedSchoolFilter);
+    if (selectedCityFilter) filtered = filtered.filter(p => cityOf(p) === selectedCityFilter);
+    if (selectedSchoolFilter) filtered = filtered.filter(p => schoolNameOf(p) === selectedSchoolFilter || collegeNameOf(p) === selectedSchoolFilter);
     return filtered;
   };
 
@@ -974,10 +950,10 @@ function App() {
   const getNonCapturedPayments = () => getFilteredPayments().filter(p => p.status !== 'captured');
 
   const institutionOf = (p) =>
-    p.current_status === 'college' ? p.college
+    p.current_status === 'college' ? collegeNameOf(p)
     : p.current_status === 'working' ? p.company_name
     : p.current_status === 'other' ? '—'
-    : p.school;
+    : schoolNameOf(p);
 
   const detailOf = (p) =>
     p.current_status === 'college' ? p.branch
@@ -991,11 +967,11 @@ function App() {
     : p.current_status === 'other' ? 'Other' : '—';
 
   const getUniqueCitiesFromPayments = () =>
-    [...new Set(payments.map(p => p.city).filter(Boolean))].sort();
+    [...new Set(payments.map(cityOf).filter(Boolean))].sort();
 
   const getUniqueSchoolsFromPayments = () => {
-    const base = selectedCityFilter ? payments.filter(p => p.city === selectedCityFilter) : payments;
-    return [...new Set([...base.map(p => p.school), ...base.map(p => p.college)].filter(Boolean))].sort();
+    const base = selectedCityFilter ? payments.filter(p => cityOf(p) === selectedCityFilter) : payments;
+    return [...new Set([...base.map(schoolNameOf), ...base.map(collegeNameOf)].filter(Boolean))].sort();
   };
 
   const exportToCSV = () => {
@@ -1004,21 +980,22 @@ function App() {
 
     const headers = ['Name', 'Current Status', 'City', 'School', 'Class', 'College', 'Branch', 'Company', 'Mobile', 'Language', 'Referred By', 'Amount', 'Payment ID', 'Date', 'Status', 'Book Given', 'Child Name', 'Child School', 'Child Section'];
     const rows = filteredPayments.map(p => [
-      p.name, p.current_status || '', p.city, p.school, p.class,
-      p.college || '', p.branch || '', p.company_name || '',
-      p.mobile, p.language, p.referred_by || '', p.amount, p.payment_id,
-      new Date(p.timestamp).toLocaleString(), p.status, p.book_given ? 'Yes' : 'No',
-      p.child_name || '', p.child_school || '', p.child_section || ''
+      csvCell(p.name), csvCell(p.current_status), csvCell(cityOf(p)), csvCell(schoolNameOf(p)), csvCell(p.class),
+      csvCell(collegeNameOf(p)), csvCell(p.branch), csvCell(p.company_name),
+      csvTextCell(p.mobile), csvCell(p.language), csvCell(p.referred_by), csvCell(p.amount), csvCell(p.payment_id),
+      csvCell(new Date(p.timestamp).toLocaleString()), csvCell(p.status), csvCell(p.book_given ? 'Yes' : 'No'),
+      csvCell(p.child_name), csvCell(childSchoolNameOf(p)), csvCell(p.child_section)
     ]);
 
-    const csvContent = [headers.join(','), ...rows.map(row => row.map(cell => `"${cell}"`).join(','))].join('\n');
+    // BOM so Excel reads Telugu/Hindi names as UTF-8; CRLF line endings for Excel
+    const csvContent = '\uFEFF' + [headers.map(csvCell).join(','), ...rows.map(row => row.join(','))].join('\r\n');
 
     let filename = `vec_payments_${new Date().toISOString().split('T')[0]}`;
     if (selectedCityFilter) filename += `_${selectedCityFilter.replace(/\s+/g, '_')}`;
     if (selectedSchoolFilter) filename += `_${selectedSchoolFilter.replace(/\s+/g, '_').substring(0, 20)}`;
     filename += '.csv';
 
-    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url; a.download = filename; a.click();
@@ -1041,7 +1018,7 @@ function App() {
                 style={{ animationDelay: `${delay}ms` }} />
             ))}
           </div>
-          <p className="text-orange-200 text-sm font-medium">Loading ŚREṢṬHA Contest…</p>
+          <p className="text-orange-200 text-sm font-medium">Loading {CONTEST_NAME}…</p>
         </div>
       </div>
     );
@@ -1061,7 +1038,7 @@ function App() {
                 <img src="/iskcon_logo.png" alt="ISKCON Logo" className="w-full h-full object-contain" />
               </div>
               <div>
-                <h1 className="text-white font-bold text-lg leading-none">ŚREṢṬHA Admin</h1>
+                <h1 className="text-white font-bold text-lg leading-none">{CONTEST_NAME} Admin</h1>
                 <p className="text-orange-200 text-xs mt-0.5">{adminEmail}</p>
               </div>
             </div>
@@ -1209,7 +1186,7 @@ function App() {
                         <td className="px-6 py-3 text-gray-600">{detailOf(payment)}</td>
                         <td className="px-6 py-3 text-gray-600 text-xs">
                           {payment.has_children
-                            ? <span className="space-y-0.5"><span className="block font-semibold text-gray-800">{payment.child_name}</span><span className="block text-gray-500">{payment.child_school} · Sec {payment.child_section}</span></span>
+                            ? <span className="space-y-0.5"><span className="block font-semibold text-gray-800">{payment.child_name}</span><span className="block text-gray-500">{childSchoolNameOf(payment)} · Sec {payment.child_section}</span></span>
                             : <span className="text-gray-300">—</span>}
                         </td>
                         <td className="px-6 py-3 text-gray-600">{payment.mobile}</td>
@@ -1261,7 +1238,7 @@ function App() {
                         <td className="px-6 py-3 text-gray-600">{detailOf(payment)}</td>
                         <td className="px-6 py-3 text-gray-600 text-xs">
                           {payment.has_children
-                            ? <span className="space-y-0.5"><span className="block font-semibold text-gray-800">{payment.child_name}</span><span className="block text-gray-500">{payment.child_school} · Sec {payment.child_section}</span></span>
+                            ? <span className="space-y-0.5"><span className="block font-semibold text-gray-800">{payment.child_name}</span><span className="block text-gray-500">{childSchoolNameOf(payment)} · Sec {payment.child_section}</span></span>
                             : <span className="text-gray-300">—</span>}
                         </td>
                         <td className="px-6 py-3 text-gray-600">{payment.mobile}</td>
@@ -1758,7 +1735,7 @@ function App() {
               <span className="inline-block bg-white/25 text-white/95 text-xs font-semibold px-3 py-1 rounded-full uppercase tracking-widest mb-3">
                 ISKCON ABIDS, Hyderabad
               </span>
-              <h1 className="text-white text-2xl font-bold mb-1">ŚREṢṬHA Contest</h1>
+              <h1 className="text-white text-2xl font-bold mb-1">{CONTEST_NAME}</h1>
               <p className="text-orange-100 text-sm">Student Registration · ₹{PAYMENT_AMOUNT}</p>
             </div>
           </div>
@@ -1793,7 +1770,7 @@ function App() {
                     className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-orange-400 focus:bg-white outline-none transition-all text-gray-800 cursor-pointer">
                     <option value="">Select your school</option>
                     {schools.map(school => (
-                      <option key={school.id} value={school.name}>{school.name}</option>
+                      <option key={school.id} value={school.id}>{school.name}</option>
                     ))}
                     <option value="Other">Other</option>
                   </select>
@@ -1833,7 +1810,7 @@ function App() {
                     className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-orange-400 focus:bg-white outline-none transition-all text-gray-800 cursor-pointer">
                     <option value="">Select your college</option>
                     {colleges.map(college => (
-                      <option key={college.id} value={college.name}>{college.name}</option>
+                      <option key={college.id} value={college.id}>{college.name}</option>
                     ))}
                     <option value="Other">Other</option>
                   </select>
@@ -1918,7 +1895,7 @@ function App() {
                   <select value={childSchool} onChange={(e) => { setChildSchool(e.target.value); setChildOtherSchoolName(''); }}
                     className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-orange-400 focus:bg-white outline-none transition-all text-gray-800 cursor-pointer">
                     <option value="">Select school</option>
-                    {schools.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                    {schools.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                     <option value="Other">Other</option>
                   </select>
                 </div>
@@ -1958,8 +1935,13 @@ function App() {
 
             <div>
               <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Mobile</label>
-              <input type="tel" name="mobile" placeholder="Mobile number" value={formData.mobile} onChange={handleInputChange}
+              <input type="tel" name="mobile" inputMode="numeric" autoComplete="tel" maxLength={16}
+                placeholder="10-digit mobile number" value={formData.mobile} onChange={handleInputChange}
+                onBlur={() => setMobileTouched(true)}
                 className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-orange-400 focus:bg-white outline-none transition-all text-gray-800 placeholder-gray-400 font-medium" />
+              {mobileTouched && formData.mobile.trim() && !normalizeIndianMobile(formData.mobile) && (
+                <p className="text-red-500 text-xs mt-1.5 font-medium">Please enter a valid 10-digit Indian mobile number.</p>
+              )}
             </div>
 
             <div>
@@ -2004,7 +1986,7 @@ function App() {
                 >
                   {isSubmitting
                     ? <span className="flex items-center justify-center gap-2"><Loader2 className="animate-spin w-5 h-5" />Please wait...</span>
-                    : registrationSaved ? 'Complete Payment' : 'Submit Details'
+                    : lastRegistration && lastRegistration.signature === JSON.stringify(buildRegistrationPayload()) ? 'Complete Payment' : 'Submit Details'
                   }
                 </button>
                 {payError && (
