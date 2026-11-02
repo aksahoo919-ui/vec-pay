@@ -1564,6 +1564,7 @@ function App() {
               </div>
               <h1 className="text-white text-2xl font-bold mb-1">{CONTEST_NAME}</h1>
               <p className="text-orange-100 text-sm">Student Registration · ₹{PAYMENT_AMOUNT}</p>
+              <p className="text-orange-100/80 text-xs mt-1">Includes booklet, study material &amp; calendar</p>
             </div>
           </div>
 
@@ -1679,9 +1680,16 @@ function App() {
 
             <p className="text-center text-xs text-gray-400 pb-1">🔒 Secured by Razorpay · All payments are final</p>
             <p className="text-center text-xs text-gray-400 pb-1">
-              <a href="/privacy" className="underline hover:text-gray-600">Privacy Policy</a>
+              <a href="/terms" className="underline hover:text-gray-600">Terms</a>
               {' · '}
-              <a href="/terms" className="underline hover:text-gray-600">Terms of Service</a>
+              <a href="/privacy" className="underline hover:text-gray-600">Privacy</a>
+              {' · '}
+              <a href="/refund" className="underline hover:text-gray-600">Refund Policy</a>
+              {' · '}
+              <a href="/contact" className="underline hover:text-gray-600">Contact Us</a>
+            </p>
+            <p className="text-center text-[11px] text-gray-400 pb-1">
+              Organised by International Society for Krishna Consciousness (ISKCON), Hyderabad
             </p>
           </div>
         </div>
