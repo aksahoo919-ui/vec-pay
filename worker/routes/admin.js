@@ -4,14 +4,13 @@ import { NOW_SQL, insert, newId, isUniqueViolation, toPayment } from '../lib/db.
 import { mainAdminUsername } from '../lib/auth.js';
 import { hashPassword, PASSWORD_MIN_LENGTH } from '../lib/passwords.js';
 import { enabledLanguages } from '../lib/settings.js';
-import { CLASSES, LANGUAGES } from '../../shared/config.js';
+import { LANGUAGES } from '../../shared/config.js';
 
 // GET /api/admin/bootstrap — everything except payments
 export async function adminBootstrap(request, env, { username }) {
-  const [cities, schools, groups, admins, others] = await env.DB.batch([
+  const [cities, schools, admins, others] = await env.DB.batch([
     env.DB.prepare('SELECT id, name FROM cities ORDER BY name'),
-    env.DB.prepare('SELECT id, name, city, devotee, sheet_id FROM schools ORDER BY name'),
-    env.DB.prepare('SELECT id, city_id, classes, language, link FROM whatsapp_groups ORDER BY updated_at'),
+    env.DB.prepare('SELECT id, name, city, devotee, sheet_id, junior_link, senior_link FROM schools ORDER BY name'),
     env.DB.prepare('SELECT id, username FROM admins ORDER BY username'),
     env.DB.prepare("SELECT value FROM settings WHERE key = 'others_sheet_id'")
   ]);
@@ -20,7 +19,6 @@ export async function adminBootstrap(request, env, { username }) {
     username,
     cities: cities.results,
     schools: schools.results,
-    whatsappGroups: groups.results.map(toGroup),
     languages: await enabledLanguages(env),
     // The main admin (from the Cloudflare secrets) is listed first and can't be removed here
     admins: [...(main ? [{ id: 'main', username: main, main: true }] : []), ...admins.results],
@@ -98,18 +96,28 @@ export async function deleteCity(request, env, { params }) {
   const used = await env.DB.prepare(
     'SELECT (SELECT count(*) FROM schools WHERE city = ?1) + (SELECT count(*) FROM colleges WHERE city = ?1) AS n'
   ).bind(city.name).first();
-  if (used.n > 0) throw new HttpError(409, `Cannot delete city. ${used.n} school(s)/college(s) are using it.`);
+  if (used.n > 0) throw new HttpError(409, `Cannot delete city. ${used.n} school(s) are using it.`);
   await env.DB.prepare('DELETE FROM cities WHERE id = ?').bind(city.id).run();
   return json({ ok: true });
 }
 
-// ── Schools & colleges (same shape) ────────────────────────────
+// ── Schools ────────────────────────────────────────────────────
+
+// Optional WhatsApp invite link; must be https:// when given.
+function whatsappLink(value, label) {
+  const link = typeof value === 'string' ? value.trim() : '';
+  if (!link) return '';
+  if (link.length > 500 || !/^https:\/\//i.test(link)) throw new HttpError(400, `${label} WhatsApp link must start with https://`);
+  return link;
+}
 
 function institutionFields(body) {
   return {
     name: need(text(body.name, 150), 'Please enter the name'),
     city: need(text(body.city, 100), 'Please select a city'),
-    devotee: need(text(body.devotee, 100), 'Please enter the devotee name')
+    devotee: need(text(body.devotee, 100), 'Please enter the devotee name'),
+    junior_link: whatsappLink(body.juniorLink, 'Junior'),
+    senior_link: whatsappLink(body.seniorLink, 'Senior')
   };
 }
 
@@ -121,8 +129,8 @@ const institutionRoutes = (table, label) => ({
   },
   async update(request, env, { params }) {
     const fields = institutionFields(await readJson(request));
-    const res = await env.DB.prepare(`UPDATE ${table} SET name = ?, city = ?, devotee = ? WHERE id = ?`)
-      .bind(fields.name, fields.city, fields.devotee, params.id).run();
+    const res = await env.DB.prepare(`UPDATE ${table} SET name = ?, city = ?, devotee = ?, junior_link = ?, senior_link = ? WHERE id = ?`)
+      .bind(fields.name, fields.city, fields.devotee, fields.junior_link, fields.senior_link, params.id).run();
     if (!res.meta.changes) throw new HttpError(404, `${label} not found`);
     return json({ id: params.id, ...fields });
   },
@@ -148,49 +156,6 @@ export async function setLanguages(request, env) {
      ON CONFLICT(key) DO UPDATE SET value = ?1, updated_at = ${NOW_SQL}`
   ).bind(JSON.stringify(chosen)).run();
   return json({ languages: chosen });
-}
-
-// ── WhatsApp groups ────────────────────────────────────────────
-
-function toGroup(row) {
-  let classes = [];
-  try { classes = JSON.parse(row.classes); } catch { /* ignore */ }
-  return { id: row.id, cityId: row.city_id, classes, language: row.language, link: row.link };
-}
-
-async function groupFields(env, body) {
-  const cityId = body.cityId || null;
-  if (cityId && !(await env.DB.prepare('SELECT id FROM cities WHERE id = ?').bind(cityId).first())) {
-    throw new HttpError(400, 'City/area not found');
-  }
-  const classes = CLASSES.filter(c => Array.isArray(body.classes) && body.classes.includes(c));
-  if (!classes.length) throw new HttpError(400, 'Choose at least one class');
-  const language = body.language || '';
-  if (language && !LANGUAGES.includes(language)) throw new HttpError(400, 'Unknown language');
-  const link = need(text(body.link, 500), 'Please enter the WhatsApp group link');
-  if (!/^https:\/\//i.test(link)) throw new HttpError(400, 'The link must start with https://');
-  return { city_id: cityId, classes: JSON.stringify(classes), language, link };
-}
-
-export async function addGroup(request, env) {
-  const row = { id: newId(), ...(await groupFields(env, await readJson(request))) };
-  await insert(env.DB, 'whatsapp_groups', row).run();
-  return json(toGroup(row));
-}
-
-export async function updateGroup(request, env, { params }) {
-  const f = await groupFields(env, await readJson(request));
-  const res = await env.DB.prepare(
-    `UPDATE whatsapp_groups SET city_id = ?, classes = ?, language = ?, link = ?, updated_at = ${NOW_SQL} WHERE id = ?`
-  ).bind(f.city_id, f.classes, f.language, f.link, params.id).run();
-  if (!res.meta.changes) throw new HttpError(404, 'Group not found');
-  return json(toGroup({ id: params.id, ...f }));
-}
-
-export async function deleteGroup(request, env, { params }) {
-  const res = await env.DB.prepare('DELETE FROM whatsapp_groups WHERE id = ?').bind(params.id).run();
-  if (!res.meta.changes) throw new HttpError(404, 'Group not found');
-  return json({ ok: true });
 }
 
 // ── Admins ─────────────────────────────────────────────────────

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { User, LogOut, Plus, Edit2, Trash2, Save, X, Download, ExternalLink, FileSpreadsheet, RefreshCw, Loader2, ChevronDown } from 'lucide-react';
 import { api } from './api';
-import { CONTEST_NAME, REGISTRATION_FEE_RUPEES, CLASSES, LANGUAGES } from '../shared/config.js';
+import { CONTEST_NAME, REGISTRATION_FEE_RUPEES, CLASSES, LANGUAGES, JUNIOR_UP_TO } from '../shared/config.js';
 import { normalizeIndianMobile } from '../shared/mobile.js';
 
 const PAYMENT_AMOUNT = REGISTRATION_FEE_RUPEES;
@@ -70,14 +70,13 @@ function App() {
   const [languages, setLanguages] = useState(LANGUAGES);
   const [languageDraft, setLanguageDraft] = useState(LANGUAGES);
 
-  // WhatsApp groups (admin) and the link shown after payment
-  const [whatsappGroups, setWhatsappGroups] = useState([]);
-  const [groupForm, setGroupForm] = useState(null);   // null = closed; { id?, cityId, classes, language, link }
-  const [whatsapp, setWhatsapp] = useState(null);     // null | { status: 'loading' | 'ready', link }
+  // WhatsApp group shown after payment
+  const [whatsapp, setWhatsapp] = useState(null);     // null | { status: 'loading' | 'ready', group, link }
 
   const [editingSchool, setEditingSchool] = useState(null);
   const [showAddSchool, setShowAddSchool] = useState(false);
-  const [newSchool, setNewSchool] = useState({ name: '', city: '', devotee: '' });
+  const EMPTY_SCHOOL = { name: '', city: '', devotee: '', juniorLink: '', seniorLink: '' };
+  const [newSchool, setNewSchool] = useState(EMPTY_SCHOOL);
 
   // editingCity is {id, name} | null
   const [showAddCity, setShowAddCity] = useState(false);
@@ -209,7 +208,6 @@ function App() {
     setSchools(data.schools);
     setLanguages(data.languages);
     setLanguageDraft(data.languages);
-    setWhatsappGroups(data.whatsappGroups);
     setAdmins(data.admins);
     setOthersSheetId(data.othersSheetId);
     setIsAdmin(true);
@@ -315,17 +313,20 @@ function App() {
 
   const addSchoolToDb = async () => {
     if (!newSchool.name || !newSchool.city || !newSchool.devotee) {
-      alert('Please fill all fields');
+      alert('Please fill in the school name, city and devotee name');
       return;
     }
 
     try {
       const data = await adminApi('/api/admin/schools', {
         method: 'POST',
-        body: { name: newSchool.name.trim(), city: newSchool.city.trim(), devotee: newSchool.devotee.trim() }
+        body: {
+          name: newSchool.name.trim(), city: newSchool.city.trim(), devotee: newSchool.devotee.trim(),
+          juniorLink: newSchool.juniorLink.trim(), seniorLink: newSchool.seniorLink.trim()
+        }
       });
       setSchools([...schools, data]);
-      setNewSchool({ name: '', city: '', devotee: '' });
+      setNewSchool(EMPTY_SCHOOL);
       setShowAddSchool(false);
       alert('School added successfully!');
       createSchoolSheet(data);
@@ -339,7 +340,10 @@ function App() {
     try {
       const data = await adminApi(`/api/admin/schools/${id}`, {
         method: 'PUT',
-        body: { name: editingSchool.name, city: editingSchool.city, devotee: editingSchool.devotee }
+        body: {
+          name: editingSchool.name, city: editingSchool.city, devotee: editingSchool.devotee,
+          juniorLink: (editingSchool.junior_link || '').trim(), seniorLink: (editingSchool.senior_link || '').trim()
+        }
       });
       setSchools(schools.map(s => s.id === id ? { ...s, ...data } : s));
       setEditingSchool(null);
@@ -610,7 +614,7 @@ function App() {
   // The server only returns it for a verified payment.
   const showWhatsappGroup = async (response) => {
     setPaymentDone(true);
-    setWhatsapp({ status: 'loading', link: null });
+    setWhatsapp({ status: 'loading', group: null, link: null });
     try {
       const data = await api('/api/registration/whatsapp', {
         method: 'POST',
@@ -620,10 +624,10 @@ function App() {
           signature: response.razorpay_signature
         }
       });
-      setWhatsapp({ status: 'ready', link: data.link || null });
+      setWhatsapp({ status: 'ready', group: data.group, link: data.link || null });
     } catch (err) {
       console.error('Could not load WhatsApp group:', err);
-      setWhatsapp({ status: 'ready', link: null });
+      setWhatsapp({ status: 'ready', group: null, link: null });
     }
   };
 
@@ -696,79 +700,6 @@ function App() {
     } catch (err) {
       alert(`Could not save languages: ${err.message}`);
     }
-  };
-
-  // ── WhatsApp groups (admin) ───────────────────────────────────
-
-  const openNewGroup = () => setGroupForm({ cityId: '', classes: [], language: '', link: '' });
-
-  const saveGroup = async () => {
-    const f = groupForm;
-    if (!f.classes.length) { alert('Choose at least one class'); return; }
-    if (!/^https:\/\//i.test(f.link.trim())) { alert('Please paste the WhatsApp group link (it starts with https://)'); return; }
-    const body = { cityId: f.cityId || null, classes: f.classes, language: f.language, link: f.link.trim() };
-    try {
-      const saved = f.id
-        ? await adminApi(`/api/admin/whatsapp-groups/${f.id}`, { method: 'PUT', body })
-        : await adminApi('/api/admin/whatsapp-groups', { method: 'POST', body });
-      setWhatsappGroups(prev => f.id ? prev.map(g => g.id === f.id ? saved : g) : [...prev, saved]);
-      setGroupForm(null);
-    } catch (err) {
-      alert(`Could not save group: ${err.message}`);
-    }
-  };
-
-  const deleteGroup = async (group) => {
-    if (!confirm('Delete this WhatsApp group link?')) return;
-    try {
-      await adminApi(`/api/admin/whatsapp-groups/${group.id}`, { method: 'DELETE' });
-      setWhatsappGroups(prev => prev.filter(g => g.id !== group.id));
-    } catch (err) {
-      alert(`Could not delete group: ${err.message}`);
-    }
-  };
-
-  // Same matching rule as the server: specific city beats "all", specific language beats "any".
-  const groupFor = (cityName, cls, language) => {
-    const cityId = cities.find(c => c.name === cityName)?.id;
-    let best = null;
-    let bestScore = -1;
-    for (const g of whatsappGroups) {
-      if (g.cityId && g.cityId !== cityId) continue;
-      if (g.language && g.language !== language) continue;
-      if (!g.classes.includes(cls)) continue;
-      const score = (g.cityId ? 2 : 0) + (g.language ? 1 : 0);
-      if (score > bestScore) { best = g; bestScore = score; }
-    }
-    return best;
-  };
-
-  // City/class/language combinations that have no group yet
-  const missingGroups = useMemo(() => {
-    const missing = [];
-    const usedCities = [...new Set(schools.map(s => s.city))].sort();
-    for (const city of usedCities) {
-      for (const cls of CLASSES) {
-        for (const lang of languages) {
-          if (!groupFor(city, cls, lang)) missing.push(`${city} · ${cls} · ${lang}`);
-        }
-      }
-    }
-    return missing;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [schools, cities, whatsappGroups, languages]);
-
-  // "1st–5th, 8th" style summary
-  const describeClasses = (list) => {
-    const idx = list.map(c => CLASSES.indexOf(c)).filter(i => i >= 0).sort((a, b) => a - b);
-    const parts = [];
-    for (let i = 0; i < idx.length; i++) {
-      let j = i;
-      while (j + 1 < idx.length && idx[j + 1] === idx[j] + 1) j++;
-      parts.push(i === j ? CLASSES[idx[i]] : `${CLASSES[idx[i]]}–${CLASSES[idx[j]]}`);
-      i = j;
-    }
-    return parts.join(', ');
   };
 
   // ── Auth ──────────────────────────────────────────────────────
@@ -1189,6 +1120,11 @@ function App() {
               <div>
                 <h2 className="text-lg font-bold text-gray-900">Schools Management</h2>
                 <p className="text-sm text-gray-400 mt-0.5">{schools.length} schools</p>
+                {schools.some(s => !s.junior_link || !s.senior_link) && (
+                  <p className="text-xs text-amber-700 mt-1 font-medium">
+                    {schools.filter(s => !s.junior_link || !s.senior_link).length} school(s) are missing a WhatsApp link — those students won't see a group after paying
+                  </p>
+                )}
               </div>
               <div className="flex flex-wrap gap-2">
                 <button onClick={bulkExportSheets} disabled={!!sheetLoading['bulk']}
@@ -1233,12 +1169,20 @@ function App() {
                     onChange={(e) => setNewSchool(prev => ({ ...prev, devotee: e.target.value }))}
                     className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-orange-400 outline-none bg-white" />
                 </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                  <input type="url" placeholder={`Junior WhatsApp link (1st–${JUNIOR_UP_TO})`} value={newSchool.juniorLink}
+                    onChange={(e) => setNewSchool(prev => ({ ...prev, juniorLink: e.target.value }))}
+                    className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-orange-400 outline-none bg-white" />
+                  <input type="url" placeholder="Senior WhatsApp link (8th and above)" value={newSchool.seniorLink}
+                    onChange={(e) => setNewSchool(prev => ({ ...prev, seniorLink: e.target.value }))}
+                    className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-orange-400 outline-none bg-white" />
+                </div>
                 <div className="flex gap-2 mt-4">
                   <button onClick={addSchoolToDb}
                     className="flex items-center gap-2 bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-all">
                     <Save size={15} /> Save School
                   </button>
-                  <button onClick={() => { setShowAddSchool(false); setNewSchool({ name: '', city: '', devotee: '' }); }}
+                  <button onClick={() => { setShowAddSchool(false); setNewSchool(EMPTY_SCHOOL); }}
                     className="flex items-center gap-2 bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-xl text-sm font-semibold transition-all">
                     <X size={15} /> Cancel
                   </button>
@@ -1262,6 +1206,20 @@ function App() {
                       <input type="text" value={editingSchool.devotee}
                         onChange={(e) => setEditingSchool(prev => ({ ...prev, devotee: e.target.value }))}
                         className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-orange-400 outline-none" />
+                      <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <label className="text-xs font-semibold text-gray-500">
+                          Junior WhatsApp link (1st–{JUNIOR_UP_TO})
+                          <input type="url" placeholder="https://chat.whatsapp.com/…" value={editingSchool.junior_link || ''}
+                            onChange={(e) => setEditingSchool(prev => ({ ...prev, junior_link: e.target.value }))}
+                            className="mt-1 w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-normal focus:border-orange-400 outline-none" />
+                        </label>
+                        <label className="text-xs font-semibold text-gray-500">
+                          Senior WhatsApp link (8th and above)
+                          <input type="url" placeholder="https://chat.whatsapp.com/…" value={editingSchool.senior_link || ''}
+                            onChange={(e) => setEditingSchool(prev => ({ ...prev, senior_link: e.target.value }))}
+                            className="mt-1 w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-normal focus:border-orange-400 outline-none" />
+                        </label>
+                      </div>
                       <div className="flex gap-2 md:col-span-3">
                         <button onClick={() => updateSchoolInDb(school.id)}
                           className="flex items-center gap-2 bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-all">
@@ -1281,6 +1239,19 @@ function App() {
                           <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-1">
                             <span className="text-xs text-gray-400">{school.city}</span>
                             <span className="text-xs text-gray-400">by {school.devotee}</span>
+                          </div>
+                          <div className="flex flex-wrap gap-2 mt-2">
+                            {[['Junior', school.junior_link], ['Senior', school.senior_link]].map(([label, link]) => link ? (
+                              <a key={label} href={link} target="_blank" rel="noreferrer"
+                                className="text-xs font-medium text-green-700 bg-green-50 border border-green-200 px-2 py-0.5 rounded-lg hover:bg-green-100">
+                                ✓ {label} WhatsApp
+                              </a>
+                            ) : (
+                              <button key={label} onClick={() => setEditingSchool(school)}
+                                className="text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-lg hover:bg-amber-100">
+                                {label} WhatsApp link not set
+                              </button>
+                            ))}
                           </div>
                         </div>
                         <div className="flex gap-2 shrink-0">
@@ -1389,116 +1360,6 @@ function App() {
               </button>
               <span className="text-xs text-gray-400">Currently offered: {languages.join(' and ')}</span>
             </div>
-          </div>
-
-          {/* WhatsApp Groups */}
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-            <div className="flex justify-between items-center px-6 py-5 border-b border-gray-100">
-              <div>
-                <h2 className="text-lg font-bold text-gray-900">WhatsApp Groups</h2>
-                <p className="text-sm text-gray-400 mt-0.5">After paying, each student is shown the group for their city/area, class and language</p>
-              </div>
-              {!groupForm && (
-                <button onClick={openNewGroup}
-                  className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-all">
-                  <Plus size={16} /> Add Group
-                </button>
-              )}
-            </div>
-
-            {groupForm && (
-              <div className="px-6 py-5 bg-gray-50 border-b border-gray-100 space-y-4">
-                <h3 className="text-sm font-bold text-gray-700">{groupForm.id ? 'Edit WhatsApp Group' : 'New WhatsApp Group'}</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">City / Area</label>
-                    <select value={groupForm.cityId} onChange={(e) => setGroupForm(f => ({ ...f, cityId: e.target.value }))}
-                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:border-orange-400 outline-none">
-                      <option value="">All cities / areas</option>
-                      {cities.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Language</label>
-                    <select value={groupForm.language} onChange={(e) => setGroupForm(f => ({ ...f, language: e.target.value }))}
-                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:border-orange-400 outline-none">
-                      <option value="">Any language</option>
-                      {LANGUAGES.map(l => <option key={l} value={l}>{l}</option>)}
-                    </select>
-                  </div>
-                </div>
-                <div>
-                  <div className="flex items-center gap-3 mb-1.5">
-                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Classes</label>
-                    <button type="button" className="text-xs text-blue-600 hover:underline"
-                      onClick={() => setGroupForm(f => ({ ...f, classes: f.classes.length === CLASSES.length ? [] : [...CLASSES] }))}>
-                      {groupForm.classes.length === CLASSES.length ? 'Clear all' : 'Select all'}
-                    </button>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {CLASSES.map(c => {
-                      const on = groupForm.classes.includes(c);
-                      return (
-                        <button key={c} type="button"
-                          onClick={() => setGroupForm(f => ({ ...f, classes: on ? f.classes.filter(x => x !== c) : CLASSES.filter(x => x === c || f.classes.includes(x)) }))}
-                          className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-all ${on ? 'bg-orange-500 text-white border-orange-500' : 'bg-white text-gray-600 border-gray-200 hover:border-orange-300'}`}>
-                          {c}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">WhatsApp group invite link</label>
-                  <input type="url" placeholder="https://chat.whatsapp.com/…" value={groupForm.link}
-                    onChange={(e) => setGroupForm(f => ({ ...f, link: e.target.value }))}
-                    className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm bg-white focus:border-orange-400 outline-none" />
-                </div>
-                <div className="flex gap-2">
-                  <button onClick={saveGroup}
-                    className="flex items-center gap-2 bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-all">
-                    <Save size={15} /> Save Group
-                  </button>
-                  <button onClick={() => setGroupForm(null)}
-                    className="flex items-center gap-2 bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-xl text-sm font-semibold transition-all">
-                    <X size={15} /> Cancel
-                  </button>
-                </div>
-              </div>
-            )}
-
-            <div className="divide-y divide-gray-50">
-              {whatsappGroups.length === 0 && !groupForm && (
-                <p className="px-6 py-6 text-sm text-gray-400">No groups yet. Add one so students can join after paying.</p>
-              )}
-              {whatsappGroups.map(g => (
-                <div key={g.id} className="px-6 py-4 flex flex-wrap items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold text-gray-800">
-                      {cities.find(c => c.id === g.cityId)?.name || 'All cities / areas'}
-                      <span className="text-gray-300"> · </span>{describeClasses(g.classes)}
-                      <span className="text-gray-300"> · </span>{g.language || 'Any language'}
-                    </p>
-                    <a href={g.link} target="_blank" rel="noreferrer" className="text-xs text-green-700 hover:underline break-all">{g.link}</a>
-                  </div>
-                  <div className="flex gap-1">
-                    <button onClick={() => setGroupForm({ ...g, cityId: g.cityId || '' })} title="Edit"
-                      className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"><Edit2 size={15} /></button>
-                    <button onClick={() => deleteGroup(g)} title="Delete"
-                      className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={15} /></button>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {missingGroups.length > 0 && (
-              <div className="px-6 py-4 bg-amber-50 border-t border-amber-100 text-sm text-amber-800">
-                <p className="font-semibold">{missingGroups.length} combination(s) have no group yet — those students won't see a link:</p>
-                <p className="mt-1 text-xs text-amber-700">
-                  {missingGroups.slice(0, 12).join(' · ')}{missingGroups.length > 12 ? ` · and ${missingGroups.length - 12} more` : ''}
-                </p>
-              </div>
-            )}
           </div>
 
           {/* Admin Management */}
@@ -1646,7 +1507,9 @@ function App() {
               </p>
             ) : whatsapp.link ? (
               <>
-                <p className="text-gray-700 text-sm mb-4">Join your class WhatsApp group for contest updates:</p>
+                <p className="text-gray-700 text-sm mb-4">
+                  Join your school's <strong>{whatsapp.group === 'junior' ? 'Junior' : 'Senior'}</strong> WhatsApp group for contest updates:
+                </p>
                 <a href={whatsapp.link} target="_blank" rel="noreferrer"
                   className="block w-full text-white font-bold py-3.5 rounded-2xl transition-all mb-3"
                   style={{ background: '#25D366' }}>

@@ -12,3 +12,9 @@ export const CLASSES = ['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', 
 // Languages the contest can be taken in. The admin chooses which of these
 // are offered on the form.
 export const LANGUAGES = ['English', 'Telugu'];
+
+// WhatsApp groups: classes up to and including JUNIOR_UP_TO get the
+// school's Junior group link; higher classes get the Senior group link.
+export const JUNIOR_UP_TO = '7th';
+export const whatsappGroupFor = (cls) =>
+  CLASSES.indexOf(cls) <= CLASSES.indexOf(JUNIOR_UP_TO) ? 'junior' : 'senior';

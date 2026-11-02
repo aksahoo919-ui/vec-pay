@@ -96,9 +96,9 @@ export async function whatsappLink(request, env) {
     throw new HttpError(400, 'Could not verify the payment');
   }
   const registration = await env.DB.prepare(
-    'SELECT school_id, city, class, language FROM payments WHERE order_id = ?'
+    'SELECT school_id, class FROM payments WHERE order_id = ?'
   ).bind(orderId).first();
   if (!registration) throw new HttpError(404, 'Registration not found');
 
-  return json({ link: await findWhatsappLink(env, registration) });
+  return json(await findWhatsappLink(env, registration));
 }
