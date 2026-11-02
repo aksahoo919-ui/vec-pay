@@ -112,6 +112,8 @@ function App() {
   const [lastRegistration, setLastRegistration] = useState(null); // { signature, orderId, mobile }
   const [mobileTouched, setMobileTouched] = useState(false);
   const [paymentDone, setPaymentDone] = useState(false);
+  const paymentShown = useRef(false);   // success popup already shown for this payment
+  const paymentWatch = useRef(null);    // timer checking the server for a completed payment
   const [payError, setPayError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -617,6 +619,9 @@ function App() {
   // After Razorpay reports success: fetch the WhatsApp group for this child.
   // The server only returns it for a verified payment.
   const showWhatsappGroup = async (response) => {
+    if (paymentShown.current) return;   // the Razorpay window and our own check can both report success
+    paymentShown.current = true;
+    stopPaymentWatch();
     setPaymentDone(true);
     setWhatsapp({ status: 'loading', group: null, link: null });
     try {
@@ -690,6 +695,34 @@ function App() {
       modal: { ondismiss: () => {} }
     });
     rzp.open();
+    watchPayment(rzp, registration.orderId);
+  };
+
+  const stopPaymentWatch = () => {
+    if (paymentWatch.current) clearInterval(paymentWatch.current);
+    paymentWatch.current = null;
+  };
+
+  // Backup for when the Razorpay window doesn't notice a payment (e.g. paid by
+  // scanning the UPI QR code with another phone): ask our server every few
+  // seconds whether the Razorpay webhook has marked this order as paid. If so,
+  // close the Razorpay window and show the success / WhatsApp popup. Keeps
+  // checking for 15 minutes, even if the window was closed.
+  const watchPayment = (rzp, orderId) => {
+    stopPaymentWatch();
+    const startedAt = Date.now();
+    paymentWatch.current = setInterval(async () => {
+      if (paymentShown.current || Date.now() - startedAt > 15 * 60 * 1000) { stopPaymentWatch(); return; }
+      try {
+        const { status } = await api(`/api/registration/status?orderId=${encodeURIComponent(orderId)}`);
+        if (status === 'captured') {
+          try { rzp.close(); } catch { /* window may already be closed */ }
+          showWhatsappGroup({ razorpay_order_id: orderId });
+        }
+      } catch {
+        // network hiccup — try again on the next tick
+      }
+    }, 4000);
   };
 
   // ── Auth ──────────────────────────────────────────────────────

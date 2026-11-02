@@ -85,19 +85,32 @@ export async function register(request, env) {
   return json({ orderId: order.id, mobile: row.mobile });
 }
 
-// POST /api/registration/whatsapp  { orderId, paymentId, signature }
-// Called by the form right after Razorpay reports success. The Razorpay
-// signature proves the payment went through, so only people who actually
-// paid get the WhatsApp group link.
+// GET /api/registration/status?orderId=…  → { status: 'pending' | 'captured' | 'failed' }
+// The form polls this while the Razorpay window is open, so a payment made by
+// scanning the QR code is noticed even if the Razorpay window doesn't report it.
+export async function registrationStatus(request, env) {
+  const orderId = new URL(request.url).searchParams.get('orderId') || '';
+  if (!/^order_[A-Za-z0-9]{1,40}$/.test(orderId)) throw new HttpError(400, 'Invalid order');
+  const row = await env.DB.prepare('SELECT status FROM payments WHERE order_id = ?').bind(orderId).first();
+  if (!row) throw new HttpError(404, 'Registration not found');
+  return json({ status: row.status });
+}
+
+// POST /api/registration/whatsapp  { orderId, paymentId?, signature? }
+// Returns the WhatsApp group link only for a paid registration: either the
+// Razorpay checkout signature proves the payment, or the Razorpay webhook has
+// already marked the registration as captured.
 export async function whatsappLink(request, env) {
   const { orderId, paymentId, signature } = await readJson(request);
-  if (!(await checkoutSignatureIsValid(orderId, paymentId, signature, env.RAZORPAY_KEY_SECRET || ''))) {
-    throw new HttpError(400, 'Could not verify the payment');
-  }
+  if (typeof orderId !== 'string' || !orderId) throw new HttpError(400, 'Missing order');
   const registration = await env.DB.prepare(
-    'SELECT school_id, class FROM payments WHERE order_id = ?'
+    'SELECT school_id, class, status FROM payments WHERE order_id = ?'
   ).bind(orderId).first();
   if (!registration) throw new HttpError(404, 'Registration not found');
+
+  const paid = registration.status === 'captured' ||
+    (await checkoutSignatureIsValid(orderId, paymentId, signature, env.RAZORPAY_KEY_SECRET || ''));
+  if (!paid) throw new HttpError(400, 'Could not verify the payment');
 
   return json(await findWhatsappLink(env, registration));
 }

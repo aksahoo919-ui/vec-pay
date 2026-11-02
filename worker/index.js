@@ -1,7 +1,7 @@
 // Cloudflare Worker: serves the website (static files from ./dist) and the /api routes.
 import { HttpError, json } from './lib/http.js';
 import { login, currentAdmin, requireAdmin, logout } from './lib/auth.js';
-import { bootstrap, register, whatsappLink } from './routes/public.js';
+import { bootstrap, register, whatsappLink, registrationStatus } from './routes/public.js';
 import { razorpayWebhook } from './routes/webhook.js';
 import * as admin from './routes/admin.js';
 import * as sheets from './routes/sheets.js';
@@ -14,6 +14,7 @@ const ROUTES = [
   ['GET',    '/api/public/bootstrap',              open(bootstrap)],
   ['POST',   '/api/register',                      open(register)],
   ['POST',   '/api/registration/whatsapp',         open(whatsappLink)],
+  ['GET',    '/api/registration/status',           open(registrationStatus)],
   ['POST',   '/api/razorpay-webhook',              open(razorpayWebhook)],
 
   ['POST',   '/api/auth/login',                    open(login)],
