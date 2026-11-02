@@ -1895,6 +1895,11 @@ function App() {
             )}
 
             <p className="text-center text-xs text-gray-400 pb-1">🔒 Secured by Razorpay · All payments are final</p>
+            <p className="text-center text-xs text-gray-400 pb-1">
+              <a href="/privacy" className="underline hover:text-gray-600">Privacy Policy</a>
+              {' · '}
+              <a href="/terms" className="underline hover:text-gray-600">Terms of Service</a>
+            </p>
           </div>
         </div>
       </div>
