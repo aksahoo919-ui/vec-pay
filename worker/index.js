@@ -1,6 +1,6 @@
 // Cloudflare Worker: serves the website (static files from ./dist) and the /api routes.
 import { HttpError, json } from './lib/http.js';
-import { startLogin, finishLogin, currentAdmin, requireAdmin, logout } from './lib/auth.js';
+import { login, currentAdmin, requireAdmin, logout } from './lib/auth.js';
 import { bootstrap, register } from './routes/public.js';
 import { razorpayWebhook } from './routes/webhook.js';
 import * as admin from './routes/admin.js';
@@ -15,11 +15,10 @@ const ROUTES = [
   ['POST',   '/api/register',                      open(register)],
   ['POST',   '/api/razorpay-webhook',              open(razorpayWebhook)],
 
-  ['GET',    '/api/auth/google/start',             open(startLogin)],
-  ['GET',    '/api/auth/google/callback',          open(finishLogin)],
+  ['POST',   '/api/auth/login',                    open(login)],
   ['GET',    '/api/auth/me',                       open(async (req, env) => {
-    const email = await currentAdmin(req, env);
-    return email ? json({ email }) : json({ error: 'Not signed in' }, 401);
+    const username = await currentAdmin(req, env);
+    return username ? json({ username }) : json({ error: 'Not signed in' }, 401);
   })],
   ['POST',   '/api/auth/logout',                   open(logout)],
 
@@ -56,8 +55,8 @@ async function handleApi(request, env) {
   if (!route) return json({ error: 'Method not allowed' }, 405);
 
   const params = pathname.match(route.regex).groups || {};
-  const email = route.admin ? await requireAdmin(request, env) : null;
-  return route.handler(request, env, { params, email });
+  const username = route.admin ? await requireAdmin(request, env) : null;
+  return route.handler(request, env, { params, username });
 }
 
 export default {

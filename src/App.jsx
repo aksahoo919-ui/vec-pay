@@ -9,12 +9,6 @@ const PAYMENT_AMOUNT = REGISTRATION_FEE_RUPEES;
 const PAYMENTS_REFRESH_MS = 20000;   // admin dashboard checks for new/changed payments this often
 const SHEETS_TIMEOUT_MS = 90000;     // Google Sheets actions can take a while
 
-const LOGIN_ERRORS = {
-  not_admin: 'This Google account is not an admin. Ask an existing admin to add your email.',
-  cancelled: 'Sign-in was cancelled.',
-  expired: 'Sign-in took too long or was interrupted. Please try again.',
-  google: 'Google sign-in failed. Please try again.'
-};
 
 // ISO time `seconds` earlier than `iso`
 const secondsBefore = (iso, seconds) => new Date(new Date(iso).getTime() - seconds * 1000).toISOString();
@@ -52,7 +46,7 @@ const loadCheckoutScript = () => {
 
 function App() {
   const [isAdmin, setIsAdmin] = useState(false);
-  const [adminEmail, setAdminEmail] = useState('');
+  const [adminUser, setAdminUser] = useState('');
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -109,6 +103,9 @@ function App() {
 
   const [razorpayKeyId, setRazorpayKeyId] = useState('');
   const [loginError, setLoginError] = useState('');
+  const [loginUsername, setLoginUsername] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [loginBusy, setLoginBusy] = useState(false);
 
   // Where the last payments refresh got to, and whether one is running
   const paymentsCursor = useRef({ since: '', afterId: '' });
@@ -116,7 +113,8 @@ function App() {
 
   // Admin management
   const [admins, setAdmins] = useState([]);
-  const [newAdminEmail, setNewAdminEmail] = useState('');
+  const [newAdminUsername, setNewAdminUsername] = useState('');
+  const [newAdminPassword, setNewAdminPassword] = useState('');
 
   // Payment state
   // The registration last saved on the server, so an unchanged form reuses
@@ -173,23 +171,14 @@ function App() {
   // ── Startup ───────────────────────────────────────────────────
 
   useEffect(() => {
-    // Google sends the admin back here with ?login_error=… if sign-in failed
-    const params = new URLSearchParams(window.location.search);
-    const reason = params.get('login_error');
-    if (reason) {
-      setLoginError(LOGIN_ERRORS[reason] || LOGIN_ERRORS.google);
-      setShowLoginModal(true);
-      window.history.replaceState(null, '', window.location.pathname);
-    }
-
     (async () => {
       const [, me] = await Promise.all([
         loadPublicData(),
         api('/api/auth/me').catch(() => null)   // not signed in → public registration page
       ]);
-      if (me?.email) {
+      if (me?.username) {
         try {
-          await enterAdmin(me.email);
+          await enterAdmin(me.username);
         } catch (error) {
           console.error('Error loading admin panel:', error);
         }
@@ -225,9 +214,9 @@ function App() {
     }
   };
 
-  const enterAdmin = async (email) => {
+  const enterAdmin = async (username) => {
     const data = await api('/api/admin/bootstrap');
-    setAdminEmail(email);
+    setAdminUser(username);
     setCities(data.cities);
     setSchools(data.schools);
     setColleges(data.colleges);
@@ -241,7 +230,7 @@ function App() {
 
   const leaveAdmin = () => {
     setIsAdmin(false);
-    setAdminEmail('');
+    setAdminUser('');
     setPayments([]);
     paymentsCursor.current = { since: '', afterId: '' };
   };
@@ -298,15 +287,20 @@ function App() {
   // ── Admin CRUD ────────────────────────────────────────────────
 
   const addAdmin = async () => {
-    const email = newAdminEmail.trim().toLowerCase();
-    if (!email) { alert('Please enter an email address'); return; }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { alert('Please enter a valid email address'); return; }
-    if (admins.some(a => a.email === email)) { alert('This email is already an admin'); return; }
+    const username = newAdminUsername.trim().toLowerCase();
+    if (!/^[a-z0-9._-]{3,30}$/.test(username)) {
+      alert('Username must be 3–30 characters: letters, numbers, dot, dash or underscore');
+      return;
+    }
+    if (admins.some(a => a.username === username)) { alert('This username is already an admin'); return; }
+    if (newAdminPassword.length < 10) { alert('Password must be at least 10 characters'); return; }
 
     try {
-      const data = await adminApi('/api/admin/admins', { method: 'POST', body: { email } });
-      setAdmins([...admins, data].sort((a, b) => a.email.localeCompare(b.email)));
-      setNewAdminEmail('');
+      const data = await adminApi('/api/admin/admins', { method: 'POST', body: { username, password: newAdminPassword } });
+      setAdmins([...admins, data].sort((a, b) => (a.main ? -1 : b.main ? 1 : a.username.localeCompare(b.username))));
+      setNewAdminUsername('');
+      setNewAdminPassword('');
+      alert(`Admin "${username}" added. Share the password with them privately.`);
     } catch (error) {
       console.error('Error adding admin:', error);
       alert(`Error adding admin: ${error.message}`);
@@ -314,9 +308,9 @@ function App() {
   };
 
   const removeAdmin = async (adminRecord) => {
-    if (adminRecord.email === adminEmail) { alert("You can't remove yourself."); return; }
-    if (admins.length <= 1) { alert('Cannot remove the last admin.'); return; }
-    if (!confirm(`Remove ${adminRecord.email} as admin?`)) return;
+    if (adminRecord.main) return;
+    if (adminRecord.username === adminUser) { alert("You can't remove yourself."); return; }
+    if (!confirm(`Remove ${adminRecord.username} as admin?`)) return;
 
     try {
       await adminApi(`/api/admin/admins/${adminRecord.id}`, { method: 'DELETE' });
@@ -747,9 +741,22 @@ function App() {
 
   // ── Auth ──────────────────────────────────────────────────────
 
-  // Full-page redirect to Google; Google sends the admin back to /api/auth/google/callback
-  const handleGoogleLogin = () => {
-    window.location.href = '/api/auth/google/start';
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    if (!loginUsername.trim() || !loginPassword) { setLoginError('Please enter your username and password.'); return; }
+    setLoginBusy(true);
+    setLoginError('');
+    try {
+      const data = await api('/api/auth/login', { method: 'POST', body: { username: loginUsername, password: loginPassword } });
+      await enterAdmin(data.username);
+      setShowLoginModal(false);
+      setLoginUsername('');
+    } catch (err) {
+      setLoginError(err.message);
+    } finally {
+      setLoginPassword('');
+      setLoginBusy(false);
+    }
   };
 
   const handleLogout = async () => {
@@ -913,7 +920,7 @@ function App() {
               </div>
               <div>
                 <h1 className="text-white font-bold text-lg leading-none">{CONTEST_NAME} Admin</h1>
-                <p className="text-orange-200 text-xs mt-0.5">{adminEmail}</p>
+                <p className="text-orange-200 text-xs mt-0.5">Signed in as {adminUser}</p>
               </div>
             </div>
             <button onClick={handleLogout}
@@ -1488,14 +1495,23 @@ function App() {
 
             <div className="px-6 py-5">
               {/* Add new admin */}
-              <div className="flex gap-2 mb-5">
+              <div className="flex flex-wrap gap-2 mb-5">
                 <input
-                  type="email"
-                  placeholder="Enter Google email address"
-                  value={newAdminEmail}
-                  onChange={(e) => setNewAdminEmail(e.target.value)}
+                  type="text"
+                  placeholder="New admin username"
+                  autoComplete="off"
+                  value={newAdminUsername}
+                  onChange={(e) => setNewAdminUsername(e.target.value)}
+                  className="flex-1 min-w-[160px] border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-orange-400 outline-none"
+                />
+                <input
+                  type="password"
+                  placeholder="Password (min 10 characters)"
+                  autoComplete="new-password"
+                  value={newAdminPassword}
+                  onChange={(e) => setNewAdminPassword(e.target.value)}
                   onKeyPress={(e) => e.key === 'Enter' && addAdmin()}
-                  className="flex-1 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-orange-400 outline-none"
+                  className="flex-1 min-w-[160px] border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-orange-400 outline-none"
                 />
                 <button onClick={addAdmin}
                   className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-all whitespace-nowrap">
@@ -1509,20 +1525,22 @@ function App() {
                   <div key={admin.id} className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
                     <div className="flex items-center gap-3">
                       <div className="w-8 h-8 rounded-full bg-orange-100 flex items-center justify-center shrink-0">
-                        <span className="text-orange-600 text-xs font-bold uppercase">{admin.email[0]}</span>
+                        <span className="text-orange-600 text-xs font-bold uppercase">{admin.username[0]}</span>
                       </div>
                       <div>
-                        <p className="text-sm font-medium text-gray-800">{admin.email}</p>
-                        {admin.email === adminEmail && (
-                          <p className="text-xs text-orange-500 font-medium">You</p>
-                        )}
+                        <p className="text-sm font-medium text-gray-800">{admin.username}</p>
+                        <p className="text-xs font-medium">
+                          {admin.main && <span className="text-gray-400">Main admin (password set in Cloudflare)</span>}
+                          {admin.main && admin.username === adminUser && <span className="text-gray-300"> · </span>}
+                          {admin.username === adminUser && <span className="text-orange-500">You</span>}
+                        </p>
                       </div>
                     </div>
                     <button
                       onClick={() => removeAdmin(admin)}
-                      disabled={admin.email === adminEmail || admins.length <= 1}
+                      disabled={admin.main || admin.username === adminUser}
                       className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                      title={admin.email === adminEmail ? "Can't remove yourself" : "Remove admin"}>
+                      title={admin.main ? 'The main admin is set in Cloudflare' : admin.username === adminUser ? "Can't remove yourself" : 'Remove admin'}>
                       <X size={16} />
                     </button>
                   </div>
@@ -1576,17 +1594,21 @@ function App() {
             {loginError && (
               <p className="text-red-600 text-sm text-center font-medium bg-red-50 border border-red-100 rounded-xl px-3 py-2 mb-4">{loginError}</p>
             )}
-            <button onClick={handleGoogleLogin}
-              className="w-full flex items-center justify-center gap-3 border-2 border-gray-200 hover:border-orange-300 hover:bg-orange-50 text-gray-700 px-4 py-3.5 rounded-2xl transition-all font-semibold mb-3">
-              <svg width="20" height="20" viewBox="0 0 24 24">
-                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
-                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
-              </svg>
-              Continue with Google
-            </button>
-            <button onClick={() => { setShowLoginModal(false); setLoginError(''); }}
+            <form onSubmit={handleLogin} className="space-y-3 mb-3">
+              <input type="text" placeholder="Username" autoComplete="username" autoCapitalize="none" autoFocus
+                value={loginUsername} onChange={(e) => setLoginUsername(e.target.value)}
+                className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-orange-400 focus:bg-white outline-none transition-all text-gray-800 placeholder-gray-400" />
+              <input type="password" placeholder="Password" autoComplete="current-password"
+                value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)}
+                className="w-full px-4 py-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:border-orange-400 focus:bg-white outline-none transition-all text-gray-800 placeholder-gray-400" />
+              <button type="submit" disabled={loginBusy}
+                className="w-full flex items-center justify-center gap-2 text-white px-4 py-3.5 rounded-2xl transition-all font-semibold disabled:opacity-60"
+                style={{ background: 'linear-gradient(135deg, #ea580c, #dc2626)' }}>
+                {loginBusy && <Loader2 className="animate-spin w-4 h-4" />}
+                Sign in
+              </button>
+            </form>
+            <button onClick={() => { setShowLoginModal(false); setLoginError(''); setLoginPassword(''); }}
               className="w-full text-gray-400 hover:text-gray-600 py-2 text-sm transition-colors">
               Cancel
             </button>

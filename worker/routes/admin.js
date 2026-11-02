@@ -1,22 +1,26 @@
 // Admin panel routes. Every handler here runs after requireAdmin().
 import { HttpError, json, readJson, text, need } from '../lib/http.js';
 import { NOW_SQL, insert, newId, isUniqueViolation, toPayment } from '../lib/db.js';
+import { mainAdminUsername } from '../lib/auth.js';
+import { hashPassword, PASSWORD_MIN_LENGTH } from '../lib/passwords.js';
 
 // GET /api/admin/bootstrap — everything except payments
-export async function adminBootstrap(request, env, { email }) {
+export async function adminBootstrap(request, env, { username }) {
   const [cities, schools, colleges, admins, others] = await env.DB.batch([
     env.DB.prepare('SELECT id, name FROM cities ORDER BY name'),
     env.DB.prepare('SELECT id, name, city, devotee, sheet_id FROM schools ORDER BY name'),
     env.DB.prepare('SELECT id, name, city, devotee FROM colleges ORDER BY name'),
-    env.DB.prepare('SELECT id, email FROM admins ORDER BY email'),
+    env.DB.prepare('SELECT id, username FROM admins ORDER BY username'),
     env.DB.prepare("SELECT value FROM settings WHERE key = 'others_sheet_id'")
   ]);
+  const main = mainAdminUsername(env);
   return json({
-    email,
+    username,
     cities: cities.results,
     schools: schools.results,
     colleges: colleges.results,
-    admins: admins.results,
+    // The main admin (from the Cloudflare secrets) is listed first and can't be removed here
+    admins: [...(main ? [{ id: 'main', username: main, main: true }] : []), ...admins.results],
     othersSheetId: others.results[0]?.value || ''
   });
 }
@@ -132,28 +136,36 @@ export const colleges = institutionRoutes('colleges', 'College');
 
 // ── Admins ─────────────────────────────────────────────────────
 
+// POST /api/admin/admins  { username, password }
 export async function addAdmin(request, env) {
-  const email = String((await readJson(request)).email || '').trim().toLowerCase();
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 200) throw new HttpError(400, 'Please enter a valid email address');
-  const admin = { id: newId(), email };
+  const body = await readJson(request);
+  const username = String(body.username || '').trim().toLowerCase();
+  const password = String(body.password || '');
+  if (!/^[a-z0-9._-]{3,30}$/.test(username)) {
+    throw new HttpError(400, 'Username must be 3–30 characters: letters, numbers, dot, dash or underscore');
+  }
+  if (username === mainAdminUsername(env)) throw new HttpError(409, 'This username is already an admin');
+  if (password.length < PASSWORD_MIN_LENGTH || password.length > 200) {
+    throw new HttpError(400, `Password must be at least ${PASSWORD_MIN_LENGTH} characters`);
+  }
+
+  const admin = { id: newId(), username, password_hash: await hashPassword(password) };
   try {
     await insert(env.DB, 'admins', admin).run();
   } catch (err) {
-    if (isUniqueViolation(err)) throw new HttpError(409, 'This email is already an admin');
+    if (isUniqueViolation(err)) throw new HttpError(409, 'This username is already an admin');
     throw err;
   }
-  return json(admin);
+  return json({ id: admin.id, username });
 }
 
-export async function removeAdmin(request, env, { params, email: me }) {
-  const target = await env.DB.prepare('SELECT id, email FROM admins WHERE id = ?').bind(params.id).first();
+export async function removeAdmin(request, env, { params, username: me }) {
+  const target = await env.DB.prepare('SELECT id, username FROM admins WHERE id = ?').bind(params.id).first();
   if (!target) throw new HttpError(404, 'Admin not found');
-  if (target.email === me) throw new HttpError(400, "You can't remove yourself.");
-  const { n } = await env.DB.prepare('SELECT count(*) AS n FROM admins').first();
-  if (n <= 1) throw new HttpError(400, 'Cannot remove the last admin.');
+  if (target.username === me) throw new HttpError(400, "You can't remove yourself.");
   await env.DB.batch([
     env.DB.prepare('DELETE FROM admins WHERE id = ?').bind(target.id),
-    env.DB.prepare('DELETE FROM sessions WHERE email = ?').bind(target.email)   // signs them out everywhere
+    env.DB.prepare('DELETE FROM sessions WHERE username = ?').bind(target.username)   // signs them out everywhere
   ]);
   return json({ ok: true });
 }

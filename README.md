@@ -13,7 +13,7 @@ Everything runs on **Cloudflare**:
 | Server code (`/api/*`) | The same Cloudflare Worker (`worker/`) |
 | Database | Cloudflare **D1** (`migrations/`) |
 | Payments | Razorpay (order per registration + webhook) |
-| Admin login | Google sign-in, sessions stored in D1 |
+| Admin login | Username + password, sessions stored in D1 |
 | Exports | Google Sheets (one per school + "Others") |
 
 Settings shared by the website and the server (contest name, fee, classes,
@@ -23,8 +23,8 @@ languages) live in `shared/config.js`.
 
 ## One-time setup (Cloudflare dashboard)
 
-You need: a Cloudflare account (free), access to the Google Cloud project
-used for Sheets, and the Razorpay dashboard.
+You need: a Cloudflare account (free) and the Razorpay dashboard. Google
+Cloud is only needed if you use the Google Sheets export.
 
 ### 1. Create the database
 1. Cloudflare dashboard → **Storage & Databases → D1 SQL Database → Create**.
@@ -52,29 +52,30 @@ each one:
 
 | Name | Value |
 |---|---|
-| `RAZORPAY_KEY_ID` | Razorpay key ID (`rzp_live_…` or `rzp_test_…`) |
-| `RAZORPAY_KEY_SECRET` | Razorpay key secret |
+| `ADMIN_USERNAME` | Username for the main admin (e.g. `owner`) |
+| `ADMIN_PASSWORD` | Password for the main admin — long and hard to guess |
+| `RAZORPAY_KEY_ID` | Razorpay Key ID (`rzp_live_…` or `rzp_test_…`) |
+| `RAZORPAY_KEY_SECRET` | Razorpay Key Secret |
 | `RAZORPAY_WEBHOOK_SECRET` | The secret you set on the Razorpay webhook (step 5) |
-| `GOOGLE_OAUTH_CLIENT_ID` | Google OAuth client ID (used for Sheets and admin login) |
+
+The webhook **refuses all requests** until `RAZORPAY_WEBHOOK_SECRET` is set.
+Forgot the main admin password? Change the `ADMIN_PASSWORD` secret.
+
+### 4. Google Sheets export (optional)
+Only needed for the "Create Google Sheet / Export / Sync" buttons. Without
+these, everything else works and the CSV export is still available.
+
+| Name | Value |
+|---|---|
+| `GOOGLE_OAUTH_CLIENT_ID` | Google OAuth client ID (Web application) |
 | `GOOGLE_OAUTH_CLIENT_SECRET` | Google OAuth client secret |
 | `GOOGLE_OAUTH_REFRESH_TOKEN` | Refresh token of the Google account that owns the Sheets |
 
-Optional: `GOOGLE_LOGIN_CLIENT_ID` / `GOOGLE_LOGIN_CLIENT_SECRET` if you want
-admin login to use a different Google OAuth client than Sheets.
-
-The webhook **refuses all requests** until `RAZORPAY_WEBHOOK_SECRET` is set.
-
-### 4. Allow Google sign-in on the new address
-Google Cloud console → **APIs & Services → Credentials** → your OAuth client:
-1. Under **Authorized redirect URIs**, add
-   `https://vec-pay.<your-subdomain>.workers.dev/api/auth/google/callback`
-2. The client must be of type **Web application**. If yours is a different
-   type, create a new Web application client and put it in
-   `GOOGLE_LOGIN_CLIENT_ID` / `GOOGLE_LOGIN_CLIENT_SECRET`.
-3. **OAuth consent screen:** if it is in *Testing* mode, only listed test
-   users can sign in, and refresh tokens (used for Sheets) expire after
-   7 days. Either add the admins as test users or click **Publish app**
-   (the login only asks for email, which needs no Google review).
+The refresh token needs the scopes
+`https://www.googleapis.com/auth/spreadsheets` and
+`https://www.googleapis.com/auth/drive.file`, the Google Sheets API and
+Google Drive API enabled, and the OAuth app **published** (in *Testing* mode
+tokens expire after 7 days).
 
 ### 5. Point Razorpay at the new address
 Razorpay dashboard → **Settings → Webhooks** → add (or edit) a webhook:
@@ -83,9 +84,9 @@ Razorpay dashboard → **Settings → Webhooks** → add (or edit) a webhook:
 - Events: `payment.captured`, `payment.failed` (and optionally `order.paid`)
 
 ### 6. Test, then retire the old setup
-1. Open the site → **Admin** → sign in with an admin Google account.
-   The first admins are `aksahoo.919@gmail.com` and
-   `abhaynitaidas.bavs@gmail.com`; add more from the admin panel.
+1. Open the site → **Admin** → sign in with `ADMIN_USERNAME` /
+   `ADMIN_PASSWORD`. Add more admins (username + password) from the
+   **Admin Management** section; the main admin can't be removed there.
 2. Add a city and a school.
 3. Register on the public page and pay. Within a few seconds the payment
    should appear under **Captured Payments** in the admin panel.
