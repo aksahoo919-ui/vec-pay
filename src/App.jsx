@@ -688,7 +688,7 @@ function App() {
       currency: 'INR',
       name: CONTEST_NAME,
       description: `Student Registration · ₹${PAYMENT_AMOUNT}`,
-      image: `${window.location.origin}/iskcon_logo.png`,
+      image: `${window.location.origin}/vec_logo.png`,
       prefill: { name: payload.name, contact: registration.mobile },
       theme: { color: '#ea580c' },
       handler: showWhatsappGroup,
@@ -848,7 +848,7 @@ function App() {
         style={{ background: 'linear-gradient(135deg, #1c0a00 0%, #7c2d12 40%, #991b1b 75%, #c2410c 100%)' }}>
         <div className="text-center">
           <div className="w-20 h-20 bg-white rounded-2xl flex items-center justify-center mx-auto mb-6 animate-pulse p-3 shadow-lg">
-            <img src="/iskcon_logo.png" alt="ISKCON logo" className="w-full h-full object-contain" />
+            <img src="/vec_logo.png" alt="VEC 2027 logo" className="w-full h-full object-contain" />
           </div>
           <div className="flex gap-2 justify-center mb-4">
             {[0, 150, 300].map(delay => (
@@ -873,7 +873,7 @@ function App() {
           <div className="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center p-1.5 shadow">
-                <img src="/iskcon_logo.png" alt="ISKCON logo" className="w-full h-full object-contain" />
+                <img src="/vec_logo.png" alt="VEC 2027 logo" className="w-full h-full object-contain" />
               </div>
               <div>
                 <h1 className="text-white font-bold text-lg leading-none">{CONTEST_NAME} Admin</h1>
@@ -1460,7 +1460,7 @@ function App() {
 
       {/* Logo watermark */}
       <div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none overflow-hidden">
-        <img src="/iskcon_logo.png" alt="" style={{ width: '55vw', maxWidth: '500px', opacity: 0.06, filter: 'invert(1)' }} />
+        <img src="/vec_logo.png" alt="" style={{ width: '55vw', maxWidth: '500px', opacity: 0.06 }} />
       </div>
 
       {/* Glow blobs */}
@@ -1560,11 +1560,10 @@ function App() {
 
             <div className="relative z-10">
               <div className="w-20 h-20 bg-white rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg p-2">
-                <img src="/iskcon_logo.png" alt="ISKCON logo" className="w-full h-full object-contain" />
+                <img src="/vec_logo.png" alt="VEC 2027 logo" className="w-full h-full object-contain" />
               </div>
               <h1 className="text-white text-2xl font-bold mb-1">{CONTEST_NAME}</h1>
-              <p className="text-white/95 text-sm font-semibold">Education Contest based on Bhagavad Gita</p>
-              <p className="text-white/90 text-xs font-medium tracking-wide mb-3">ISKCON ABIDS, Hyderabad</p>
+              <p className="text-white/95 text-sm font-semibold mb-3">Education Contest based on Bhagavad Gita</p>
               <p className="text-orange-100 text-sm">Student Registration · ₹{PAYMENT_AMOUNT}</p>
               <p className="text-orange-100/80 text-xs mt-1">Includes booklet, study material &amp; calendar</p>
             </div>
@@ -1689,9 +1688,6 @@ function App() {
               <a href="/refund" className="underline hover:text-gray-600">Refund Policy</a>
               {' · '}
               <a href="/contact" className="underline hover:text-gray-600">Contact Us</a>
-            </p>
-            <p className="text-center text-[11px] text-gray-400 pb-1">
-              Organised by ISKCON ABIDS, Hyderabad
             </p>
           </div>
         </div>
