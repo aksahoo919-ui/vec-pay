@@ -72,7 +72,7 @@ function App() {
 
   const [editingSchool, setEditingSchool] = useState(null);
   const [showAddSchool, setShowAddSchool] = useState(false);
-  const EMPTY_SCHOOL = { name: '', city: '', devotee: '', juniorLink: '', seniorLink: '', languages: [...LANGUAGES] };
+  const EMPTY_SCHOOL = { name: '', city: '', devotee: '', languages: [...LANGUAGES], whatsapp_links: {} };
   const [newSchool, setNewSchool] = useState(EMPTY_SCHOOL);
 
   // editingCity is {id, name} | null
@@ -326,8 +326,8 @@ function App() {
         method: 'POST',
         body: {
           name: newSchool.name.trim(), city: newSchool.city.trim(), devotee: newSchool.devotee.trim(),
-          juniorLink: newSchool.juniorLink.trim(), seniorLink: newSchool.seniorLink.trim(),
-          languages: newSchool.languages
+          languages: newSchool.languages,
+          whatsappLinks: trimLinks(newSchool.whatsapp_links)
         }
       });
       setSchools([...schools, data]);
@@ -347,8 +347,8 @@ function App() {
         method: 'PUT',
         body: {
           name: editingSchool.name, city: editingSchool.city, devotee: editingSchool.devotee,
-          juniorLink: (editingSchool.junior_link || '').trim(), seniorLink: (editingSchool.senior_link || '').trim(),
-          languages: editingSchool.languages
+          languages: editingSchool.languages,
+          whatsappLinks: trimLinks(editingSchool.whatsapp_links)
         }
       });
       setSchools(schools.map(s => s.id === id ? { ...s, ...data } : s));
@@ -633,7 +633,7 @@ function App() {
           signature: response.razorpay_signature
         }
       });
-      setWhatsapp({ status: 'ready', group: data.group, link: data.link || null });
+      setWhatsapp({ status: 'ready', group: data.group, language: data.language, link: data.link || null });
     } catch (err) {
       console.error('Could not load WhatsApp group:', err);
       setWhatsapp({ status: 'ready', group: null, link: null });
@@ -756,6 +756,32 @@ function App() {
   };
 
   // ── Helpers ───────────────────────────────────────────────────
+
+  const WA_GROUPS = [
+    ['junior', `Junior (1st–${JUNIOR_UP_TO})`],
+    ['senior', `Senior (${CLASSES[CLASSES.indexOf(JUNIOR_UP_TO) + 1]}–${CLASSES[CLASSES.length - 1]})`]
+  ];
+
+  const trimLinks = (links = {}) => Object.fromEntries(Object.entries(links).map(([lang, g]) =>
+    [lang, { junior: (g?.junior || '').trim(), senior: (g?.senior || '').trim() }]));
+
+  // Languages of a school that are missing a Junior or Senior link
+  const missingLinks = (school) => (school.languages || []).flatMap(lang =>
+    WA_GROUPS.filter(([g]) => !school.whatsapp_links?.[lang]?.[g]).map(([g]) => `${lang} ${g}`));
+
+  // Junior + Senior link boxes for each language the school offers (2 or 4 boxes)
+  const whatsappInputs = (languages, links, onChange) => (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      {languages.flatMap(lang => WA_GROUPS.map(([group, label]) => (
+        <label key={`${lang}-${group}`} className="text-xs font-semibold text-gray-500">
+          {lang} WhatsApp link · {label}
+          <input type="url" placeholder="https://chat.whatsapp.com/…" value={links?.[lang]?.[group] || ''}
+            onChange={(e) => onChange({ ...links, [lang]: { ...(links?.[lang] || {}), [group]: e.target.value } })}
+            className="mt-1 w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-normal bg-white focus:border-orange-400 outline-none" />
+        </label>
+      )))}
+    </div>
+  );
 
   // English / Telugu checkboxes for a school's languages
   const languageCheckboxes = (selected, onChange) => (
@@ -1159,9 +1185,9 @@ function App() {
               <div>
                 <h2 className="text-lg font-bold text-gray-900">Schools Management</h2>
                 <p className="text-sm text-gray-400 mt-0.5">{schools.length} schools</p>
-                {schools.some(s => !s.junior_link || !s.senior_link) && (
+                {schools.some(s => missingLinks(s).length) && (
                   <p className="text-xs text-amber-700 mt-1 font-medium">
-                    {schools.filter(s => !s.junior_link || !s.senior_link).length} school(s) are missing a WhatsApp link — those students won't see a group after paying
+                    {schools.filter(s => missingLinks(s).length).length} school(s) are missing a WhatsApp link — those students won't see a group after paying
                   </p>
                 )}
               </div>
@@ -1208,16 +1234,11 @@ function App() {
                     onChange={(e) => setNewSchool(prev => ({ ...prev, devotee: e.target.value }))}
                     className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-orange-400 outline-none bg-white" />
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-                  <input type="url" placeholder={`Junior WhatsApp link (1st–${JUNIOR_UP_TO})`} value={newSchool.juniorLink}
-                    onChange={(e) => setNewSchool(prev => ({ ...prev, juniorLink: e.target.value }))}
-                    className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-orange-400 outline-none bg-white" />
-                  <input type="url" placeholder="Senior WhatsApp link (8th and above)" value={newSchool.seniorLink}
-                    onChange={(e) => setNewSchool(prev => ({ ...prev, seniorLink: e.target.value }))}
-                    className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-orange-400 outline-none bg-white" />
-                </div>
                 <div className="mt-4">
                   {languageCheckboxes(newSchool.languages, (languages) => setNewSchool(prev => ({ ...prev, languages })))}
+                </div>
+                <div className="mt-4">
+                  {whatsappInputs(newSchool.languages, newSchool.whatsapp_links, (whatsapp_links) => setNewSchool(prev => ({ ...prev, whatsapp_links })))}
                 </div>
                 <div className="flex gap-2 mt-4">
                   <button onClick={addSchoolToDb}
@@ -1248,22 +1269,11 @@ function App() {
                       <input type="text" value={editingSchool.devotee}
                         onChange={(e) => setEditingSchool(prev => ({ ...prev, devotee: e.target.value }))}
                         className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-orange-400 outline-none" />
-                      <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <label className="text-xs font-semibold text-gray-500">
-                          Junior WhatsApp link (1st–{JUNIOR_UP_TO})
-                          <input type="url" placeholder="https://chat.whatsapp.com/…" value={editingSchool.junior_link || ''}
-                            onChange={(e) => setEditingSchool(prev => ({ ...prev, junior_link: e.target.value }))}
-                            className="mt-1 w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-normal focus:border-orange-400 outline-none" />
-                        </label>
-                        <label className="text-xs font-semibold text-gray-500">
-                          Senior WhatsApp link (8th and above)
-                          <input type="url" placeholder="https://chat.whatsapp.com/…" value={editingSchool.senior_link || ''}
-                            onChange={(e) => setEditingSchool(prev => ({ ...prev, senior_link: e.target.value }))}
-                            className="mt-1 w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-normal focus:border-orange-400 outline-none" />
-                        </label>
-                      </div>
                       <div className="md:col-span-3">
                         {languageCheckboxes(editingSchool.languages || [], (languages) => setEditingSchool(prev => ({ ...prev, languages })))}
+                      </div>
+                      <div className="md:col-span-3">
+                        {whatsappInputs(editingSchool.languages || [], editingSchool.whatsapp_links, (whatsapp_links) => setEditingSchool(prev => ({ ...prev, whatsapp_links })))}
                       </div>
                       <div className="flex gap-2 md:col-span-3">
                         <button onClick={() => updateSchoolInDb(school.id)}
@@ -1287,17 +1297,21 @@ function App() {
                             <span className="text-xs text-gray-400">{(school.languages || []).join(' & ')}</span>
                           </div>
                           <div className="flex flex-wrap gap-2 mt-2">
-                            {[['Junior', school.junior_link], ['Senior', school.senior_link]].map(([label, link]) => link ? (
-                              <a key={label} href={link} target="_blank" rel="noreferrer"
-                                className="text-xs font-medium text-green-700 bg-green-50 border border-green-200 px-2 py-0.5 rounded-lg hover:bg-green-100">
-                                ✓ {label} WhatsApp
-                              </a>
-                            ) : (
-                              <button key={label} onClick={() => setEditingSchool(school)}
-                                className="text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-lg hover:bg-amber-100">
-                                {label} WhatsApp link not set
-                              </button>
-                            ))}
+                            {(school.languages || []).flatMap(lang => WA_GROUPS.map(([group]) => {
+                              const link = school.whatsapp_links?.[lang]?.[group];
+                              const label = `${lang} · ${group === 'junior' ? 'Junior' : 'Senior'}`;
+                              return link ? (
+                                <a key={label} href={link} target="_blank" rel="noreferrer"
+                                  className="text-xs font-medium text-green-700 bg-green-50 border border-green-200 px-2 py-0.5 rounded-lg hover:bg-green-100">
+                                  ✓ {label}
+                                </a>
+                              ) : (
+                                <button key={label} onClick={() => setEditingSchool(school)}
+                                  className="text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-lg hover:bg-amber-100">
+                                  {label} link not set
+                                </button>
+                              );
+                            }))}
                           </div>
                         </div>
                         <div className="flex gap-2 shrink-0">
@@ -1528,7 +1542,7 @@ function App() {
             ) : whatsapp.link ? (
               <>
                 <p className="text-gray-700 text-sm mb-4">
-                  Join your school's <strong>{whatsapp.group === 'junior' ? 'Junior' : 'Senior'}</strong> WhatsApp group for contest updates:
+                  Join your school's <strong>{whatsapp.group === 'junior' ? 'Junior' : 'Senior'}{whatsapp.language ? ` (${whatsapp.language})` : ''}</strong> WhatsApp group for contest updates:
                 </p>
                 <a href={whatsapp.link} target="_blank" rel="noreferrer"
                   className="block w-full text-white font-bold py-3.5 rounded-2xl transition-all mb-3"

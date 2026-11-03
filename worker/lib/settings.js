@@ -14,3 +14,19 @@ export function languagesFromRequest(value) {
   const chosen = LANGUAGES.filter(l => Array.isArray(value) && value.includes(l));
   return chosen.length ? JSON.stringify(chosen) : null;
 }
+
+// A school's whatsapp_links column (JSON text) → { English: { junior, senior }, … }
+// with an entry (possibly empty strings) for each language the school offers.
+export function parseWhatsappLinks(raw, languages) {
+  let stored = {};
+  try { stored = JSON.parse(raw || '{}') || {}; } catch { /* treat as empty */ }
+  const out = {};
+  for (const lang of languages) {
+    const entry = stored[lang] || {};
+    out[lang] = {
+      junior: typeof entry.junior === 'string' ? entry.junior : '',
+      senior: typeof entry.senior === 'string' ? entry.senior : ''
+    };
+  }
+  return out;
+}

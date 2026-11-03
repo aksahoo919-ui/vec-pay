@@ -104,7 +104,7 @@ export async function whatsappLink(request, env) {
   const { orderId, paymentId, signature } = await readJson(request);
   if (typeof orderId !== 'string' || !orderId) throw new HttpError(400, 'Missing order');
   const registration = await env.DB.prepare(
-    'SELECT school_id, class, status FROM payments WHERE order_id = ?'
+    'SELECT school_id, class, language, status FROM payments WHERE order_id = ?'
   ).bind(orderId).first();
   if (!registration) throw new HttpError(404, 'Registration not found');
 

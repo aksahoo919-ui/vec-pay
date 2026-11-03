@@ -3,13 +3,13 @@ import { HttpError, json, readJson, text, need } from '../lib/http.js';
 import { NOW_SQL, insert, newId, isUniqueViolation, toPayment } from '../lib/db.js';
 import { mainAdminUsername } from '../lib/auth.js';
 import { hashPassword, PASSWORD_MIN_LENGTH } from '../lib/passwords.js';
-import { parseLanguages, languagesFromRequest } from '../lib/settings.js';
+import { parseLanguages, languagesFromRequest, parseWhatsappLinks } from '../lib/settings.js';
 
 // GET /api/admin/bootstrap — everything except payments
 export async function adminBootstrap(request, env, { username }) {
   const [cities, schools, admins, others] = await env.DB.batch([
     env.DB.prepare('SELECT id, name FROM cities ORDER BY name'),
-    env.DB.prepare('SELECT id, name, city, devotee, sheet_id, junior_link, senior_link, languages FROM schools ORDER BY name'),
+    env.DB.prepare('SELECT id, name, city, devotee, sheet_id, languages, whatsapp_links FROM schools ORDER BY name'),
     env.DB.prepare('SELECT id, username FROM admins ORDER BY username'),
     env.DB.prepare("SELECT value FROM settings WHERE key = 'others_sheet_id'")
   ]);
@@ -110,18 +110,32 @@ function whatsappLink(value, label) {
 }
 
 function institutionFields(body) {
+  const languages = need(languagesFromRequest(body.languages), 'Choose at least one language for the school');
+
+  // Junior + Senior link for each language the school offers (each optional)
+  const sent = body.whatsappLinks && typeof body.whatsappLinks === 'object' ? body.whatsappLinks : {};
+  const links = {};
+  for (const lang of JSON.parse(languages)) {
+    links[lang] = {
+      junior: whatsappLink(sent[lang]?.junior, `${lang} Junior`),
+      senior: whatsappLink(sent[lang]?.senior, `${lang} Senior`)
+    };
+  }
+
   return {
     name: need(text(body.name, 150), 'Please enter the name'),
     city: need(text(body.city, 100), 'Please select a city'),
     devotee: need(text(body.devotee, 100), 'Please enter the devotee name'),
-    junior_link: whatsappLink(body.juniorLink, 'Junior'),
-    senior_link: whatsappLink(body.seniorLink, 'Senior'),
-    languages: need(languagesFromRequest(body.languages), 'Choose at least one language for the school')
+    languages,
+    whatsapp_links: JSON.stringify(links)
   };
 }
 
-// languages is stored as JSON text; the website gets an array
-const toSchool = (row) => ({ ...row, languages: parseLanguages(row.languages) });
+// languages and whatsapp_links are stored as JSON text; the website gets objects
+function toSchool(row) {
+  const languages = parseLanguages(row.languages);
+  return { ...row, languages, whatsapp_links: parseWhatsappLinks(row.whatsapp_links, languages) };
+}
 
 const institutionRoutes = (table, label) => ({
   async add(request, env) {
@@ -131,8 +145,8 @@ const institutionRoutes = (table, label) => ({
   },
   async update(request, env, { params }) {
     const fields = institutionFields(await readJson(request));
-    const res = await env.DB.prepare(`UPDATE ${table} SET name = ?, city = ?, devotee = ?, junior_link = ?, senior_link = ?, languages = ? WHERE id = ?`)
-      .bind(fields.name, fields.city, fields.devotee, fields.junior_link, fields.senior_link, fields.languages, params.id).run();
+    const res = await env.DB.prepare(`UPDATE ${table} SET name = ?, city = ?, devotee = ?, languages = ?, whatsapp_links = ? WHERE id = ?`)
+      .bind(fields.name, fields.city, fields.devotee, fields.languages, fields.whatsapp_links, params.id).run();
     if (!res.meta.changes) throw new HttpError(404, `${label} not found`);
     return json(toSchool({ id: params.id, ...fields }));
   },
