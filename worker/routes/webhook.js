@@ -4,15 +4,20 @@ import { NOW_SQL } from '../lib/db.js';
 import { webhookSignatureIsValid } from '../lib/razorpay.js';
 
 export async function razorpayWebhook(request, env) {
-  if (!env.RAZORPAY_WEBHOOK_SECRET) {
+  // Ignore spaces / line breaks accidentally copied along with the secret
+  const secret = String(env.RAZORPAY_WEBHOOK_SECRET || '').trim();
+  if (!secret) {
     // Refuse everything rather than accept unverified "payment captured" messages.
     console.error('Webhook misconfigured: RAZORPAY_WEBHOOK_SECRET is not set');
     return json({ error: 'Server misconfigured' }, 500);
   }
 
   const raw = await request.text();
-  if (!(await webhookSignatureIsValid(raw, request.headers.get('X-Razorpay-Signature'), env.RAZORPAY_WEBHOOK_SECRET))) {
-    console.error('Webhook signature mismatch');
+  const signature = request.headers.get('X-Razorpay-Signature');
+  if (!(await webhookSignatureIsValid(raw, signature, secret))) {
+    console.error(signature
+      ? 'Webhook signature mismatch: RAZORPAY_WEBHOOK_SECRET in Cloudflare does not match the secret on the Razorpay webhook'
+      : 'Webhook rejected: no X-Razorpay-Signature header (not sent by Razorpay?)');
     return json({ error: 'Invalid signature' }, 400);
   }
 
