@@ -33,6 +33,7 @@ const ROUTES = [
   ['POST',   '/api/admin/schools',                 adminOnly(admin.schools.add)],
   ['PUT',    '/api/admin/schools/:id',             adminOnly(admin.schools.update)],
   ['DELETE', '/api/admin/schools/:id',             adminOnly(admin.schools.remove)],
+  ['POST',   '/api/admin/webhook-secret-check',    adminOnly(admin.checkWebhookSecret)],
   ['POST',   '/api/admin/admins',                  adminOnly(admin.addAdmin)],
   ['DELETE', '/api/admin/admins/:id',              adminOnly(admin.removeAdmin)],
   ['POST',   '/api/admin/sheets/create',           adminOnly(sheets.createSheet)],

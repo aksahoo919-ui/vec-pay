@@ -106,6 +106,10 @@ function App() {
   const [newAdminUsername, setNewAdminUsername] = useState('');
   const [newAdminPassword, setNewAdminPassword] = useState('');
 
+  // Razorpay webhook secret check
+  const [webhookSecretInput, setWebhookSecretInput] = useState('');
+  const [webhookCheck, setWebhookCheck] = useState(null);   // null | 'checking' | { configured, matches } | { error }
+
   // Payment state
   // The registration last saved on the server, so an unchanged form reuses
   // its Razorpay order while an edited form creates a fresh registration.
@@ -309,6 +313,16 @@ function App() {
     } catch (error) {
       console.error('Error removing admin:', error);
       alert(`Error removing admin: ${error.message}`);
+    }
+  };
+
+  const checkWebhookSecret = async () => {
+    if (!webhookSecretInput.trim()) return;
+    setWebhookCheck('checking');
+    try {
+      setWebhookCheck(await adminApi('/api/admin/webhook-secret-check', { method: 'POST', body: { secret: webhookSecretInput } }));
+    } catch (err) {
+      setWebhookCheck({ error: err.message });
     }
   };
 
@@ -1392,6 +1406,40 @@ function App() {
                     Sync from Sheet
                   </button>
                 </>
+              )}
+            </div>
+          </div>
+
+          {/* Razorpay webhook check */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+            <div className="px-6 py-5 border-b border-gray-100">
+              <h2 className="text-lg font-bold text-gray-900">Razorpay Webhook Check</h2>
+              <p className="text-sm text-gray-400 mt-0.5">
+                Paste the secret you entered on the Razorpay webhook to check it matches RAZORPAY_WEBHOOK_SECRET in Cloudflare. The secret is never shown or stored.
+              </p>
+            </div>
+            <div className="px-6 py-5 space-y-3">
+              <div className="flex flex-wrap gap-2">
+                <input type="password" autoComplete="off" placeholder="Secret from the Razorpay webhook"
+                  value={webhookSecretInput}
+                  onChange={(e) => { setWebhookSecretInput(e.target.value); setWebhookCheck(null); }}
+                  onKeyPress={(e) => e.key === 'Enter' && checkWebhookSecret()}
+                  className="flex-1 min-w-[220px] border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-orange-400 outline-none" />
+                <button onClick={checkWebhookSecret} disabled={!webhookSecretInput.trim() || webhookCheck === 'checking'}
+                  className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 disabled:bg-gray-200 disabled:text-gray-400 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-all">
+                  {webhookCheck === 'checking' && <Loader2 size={15} className="animate-spin" />} Check
+                </button>
+              </div>
+              {webhookCheck && webhookCheck !== 'checking' && (
+                webhookCheck.error ? (
+                  <p className="text-sm text-red-600 font-medium">{webhookCheck.error}</p>
+                ) : !webhookCheck.configured ? (
+                  <p className="text-sm text-red-600 font-medium">✗ RAZORPAY_WEBHOOK_SECRET is not set in Cloudflare. Add it under vec-pay → Settings → Variables and Secrets (type Secret).</p>
+                ) : webhookCheck.matches ? (
+                  <p className="text-sm text-green-700 font-medium">✓ Matches. Cloudflare has the same secret. If Razorpay still reports failures, another webhook (e.g. an old or Test-mode one) may be sending with a different secret.</p>
+                ) : (
+                  <p className="text-sm text-red-600 font-medium">✗ Does not match. Cloudflare has a different secret. Set the same value in both places.</p>
+                )
               )}
             </div>
           </div>

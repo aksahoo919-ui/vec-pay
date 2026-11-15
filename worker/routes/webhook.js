@@ -12,12 +12,22 @@ export async function razorpayWebhook(request, env) {
     return json({ error: 'Server misconfigured' }, 500);
   }
 
-  const raw = await request.text();
+  // Check the signature on the exact bytes Razorpay sent
+  const bytes = new Uint8Array(await request.arrayBuffer());
+  const raw = new TextDecoder().decode(bytes);
   const signature = request.headers.get('X-Razorpay-Signature');
-  if (!(await webhookSignatureIsValid(raw, signature, secret))) {
-    console.error(signature
-      ? 'Webhook signature mismatch: RAZORPAY_WEBHOOK_SECRET in Cloudflare does not match the secret on the Razorpay webhook'
-      : 'Webhook rejected: no X-Razorpay-Signature header (not sent by Razorpay?)');
+  if (!(await webhookSignatureIsValid(bytes, signature, secret))) {
+    if (signature) {
+      // Which webhook sent it helps find a duplicate / test-mode webhook with a different secret
+      let info = {};
+      try { info = JSON.parse(raw); } catch { /* not JSON */ }
+      console.error('Webhook signature mismatch: RAZORPAY_WEBHOOK_SECRET in Cloudflare does not match the secret on the Razorpay webhook',
+        '| event:', info.event, '| account:', info.account_id,
+        '| event id:', request.headers.get('X-Razorpay-Event-Id'),
+        '| payment:', info.payload?.payment?.entity?.id);
+    } else {
+      console.error('Webhook rejected: no X-Razorpay-Signature header (not sent by Razorpay?)');
+    }
     return json({ error: 'Invalid signature' }, 400);
   }
 

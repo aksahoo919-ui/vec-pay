@@ -4,6 +4,7 @@ import { NOW_SQL, insert, newId, isUniqueViolation, toPayment } from '../lib/db.
 import { mainAdminUsername } from '../lib/auth.js';
 import { hashPassword, PASSWORD_MIN_LENGTH } from '../lib/passwords.js';
 import { parseLanguages, languagesFromRequest, parseWhatsappLinks } from '../lib/settings.js';
+import { sameSecret } from '../lib/razorpay.js';
 
 // GET /api/admin/bootstrap — everything except payments
 export async function adminBootstrap(request, env, { username }) {
@@ -159,6 +160,19 @@ const institutionRoutes = (table, label) => ({
 });
 
 export const schools = institutionRoutes('schools', 'School');
+
+// ── Razorpay webhook secret check ──────────────────────────────
+
+// POST /api/admin/webhook-secret-check  { secret }
+// Tells the admin whether the secret they set on the Razorpay webhook matches
+// RAZORPAY_WEBHOOK_SECRET in Cloudflare. Never returns the secret itself.
+export async function checkWebhookSecret(request, env) {
+  const { secret } = await readJson(request);
+  const configured = String(env.RAZORPAY_WEBHOOK_SECRET || '').trim();
+  if (!configured) return json({ configured: false, matches: false });
+  if (typeof secret !== 'string' || !secret.trim()) throw new HttpError(400, 'Paste the secret from the Razorpay webhook');
+  return json({ configured: true, matches: await sameSecret(secret, configured) });
+}
 
 // ── Admins ─────────────────────────────────────────────────────
 

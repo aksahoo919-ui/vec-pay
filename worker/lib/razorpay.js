@@ -19,7 +19,9 @@ export async function createOrder(env, { amountPaise, notes }) {
 
 async function hmacHex(secret, message) {
   const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-  const mac = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(message));
+  // Sign the exact bytes received when given bytes (webhook body), else the UTF-8 text
+  const data = typeof message === 'string' ? new TextEncoder().encode(message) : message;
+  const mac = await crypto.subtle.sign('HMAC', key, data);
   return [...new Uint8Array(mac)].map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
@@ -43,5 +45,19 @@ export async function checkoutSignatureIsValid(orderId, paymentId, signature, ke
   if (signature.length !== expected.length) return false;
   let diff = 0;
   for (let i = 0; i < expected.length; i++) diff |= signature.charCodeAt(i) ^ expected.charCodeAt(i);
+  return diff === 0;
+}
+
+// True when `candidate` equals the configured webhook secret (both trimmed).
+// Compares SHA-256 digests so the check takes the same time either way.
+export async function sameSecret(candidate, configured) {
+  const enc = new TextEncoder();
+  const [a, b] = await Promise.all([
+    crypto.subtle.digest('SHA-256', enc.encode(String(candidate || '').trim())),
+    crypto.subtle.digest('SHA-256', enc.encode(String(configured || '').trim()))
+  ]);
+  const x = new Uint8Array(a), y = new Uint8Array(b);
+  let diff = 0;
+  for (let i = 0; i < x.length; i++) diff |= x[i] ^ y[i];
   return diff === 0;
 }
